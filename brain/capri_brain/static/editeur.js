@@ -1751,6 +1751,17 @@
         ctx2.restore();
       }
     }
+    /** Lowest point of her body (sprite px) in this pose: feet, knees, bottom, hands or head, whichever touches down. */
+    lowest(pose, headScale = 1) {
+      this.solve(pose, {}, headScale);
+      let low = -Infinity;
+      for (const b of RIG.bones) {
+        if (b.name === "hair") continue;
+        const m = this.world.get(b.name);
+        for (const pt of [b.pivot, b.end]) low = Math.max(low, m.apply(pt)[1]);
+      }
+      return low;
+    }
     /** Repaint only the hair (to fall in front of the face). */
     drawHair(ctx2, paintHair) {
       const b = RIG.bones.find((x) => x.name === "hair");
@@ -1814,7 +1825,11 @@
   function drawRigged(ctx2, rig2, base0, flip, p, t, F) {
     const basePose = {};
     for (const name of BONE_NAMES) basePose[name] = F[POSE_KEY(name)] ?? 0;
-    const { pose, stretch, drop } = poseFromParams(p, t, basePose);
+    const { pose, stretch } = poseFromParams(p, t, basePose);
+    const low = rig2.lowest(pose, F.headScale ?? 1);
+    const onEdge = Math.max(0, Math.min(1, (p.hipDrop - 110) / 40));
+    const seat = low + (rig2.place("thighL", HIP[0], HIP[1]).y + SEAT_DEPTH - low) * onEdge;
+    const drop = restLow(rig2, basePose, F.headScale ?? 1) - seat;
     const base = base0.translate(0, drop);
     const colour = { violet: PALETTE.violet, crimson: F.hairColor, ink: PALETTE.ink, green: F.maskColor };
     ctx2.save();
@@ -1859,22 +1874,32 @@
     add("upperArmR", -p.armRRaise * 140 - p.armSpread * 70 + Math.sin(t * 0.8 + 1) * 1.5);
     add("forearmR", -p.armRRaise * 25 + p.armRWave * 32 + p.armSpread * 10);
     add("handR", p.armRWave * 12);
-    const stretch = {};
-    const leg = (side, thigh, knee, fore) => {
+    const leg = (side, thigh, knee) => {
       const sign = side === "L" ? 1 : -1;
-      const fwd = clamp01((Math.abs(thigh) - 25) / 80);
-      add(`thigh${side}`, sign * Math.max(-25, Math.min(25, thigh)) * 0.6 * (1 - fwd * 0.6));
-      add(`shin${side}`, -sign * knee * 0.35 * (1 - fwd));
-      stretch[`thigh${side}`] = (0.45 + 0.55 * fore) * (1 - 0.55 * fwd);
-      if (knee > 90) stretch[`shin${side}`] = 1 - 0.45 * fwd;
+      add(`thigh${side}`, sign * thigh * LEG_SWING);
+      add(`shin${side}`, -sign * knee * KNEE_FOLD);
     };
     add("footL", FOOT_REST.L);
     add("footR", FOOT_REST.R);
-    leg("L", p.thighL, p.kneeL, p.foreL);
-    leg("R", p.thighR, p.kneeR, p.foreR);
-    return { pose, stretch, drop: p.hipDrop * 0.7 };
+    leg("L", p.thighL, p.kneeL);
+    leg("R", p.thighR, p.kneeR);
+    return { pose, stretch: {}, drop: 0 };
   }
-  var clamp01 = (v) => Math.max(0, Math.min(1, v));
+  var LEG_SWING = 0.62;
+  var KNEE_FOLD = 0.95;
+  var HIP = [124, 202];
+  var SEAT_DEPTH = 12;
+  var restCache = { key: "", low: 0 };
+  function restLow(rig2, basePose, headScale) {
+    const key = JSON.stringify(basePose) + headScale;
+    if (restCache.key !== key) {
+      const stand = { ...basePose };
+      stand.footL = (stand.footL ?? 0) + FOOT_REST.L;
+      stand.footR = (stand.footR ?? 0) + FOOT_REST.R;
+      restCache = { key, low: rig2.lowest(stand, headScale) };
+    }
+    return restCache.low;
+  }
 
   // src/editor/main.ts
   var GROUPS = [

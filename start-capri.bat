@@ -15,7 +15,7 @@ if not exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
 rem --- Brain (Python 3.12) ---------------------------------------------------------
 cd /d "%~dp0brain"
 if not exist .venv\Scripts\python.exe (
-    echo Installing her brain (a few minutes, first time only)...
+    echo Installing her brain - a few minutes, first time only...
     py -3.12 -m venv .venv || goto :error
     .venv\Scripts\python -m pip install --upgrade pip -q
     .venv\Scripts\python -m pip install -r requirements.txt -q || goto :error
@@ -39,7 +39,7 @@ if not exist "%MODELS%\nomic-embed-text\latest" set NEED=1
 if defined NEED (
     curl -s http://127.0.0.1:11434/api/version >nul 2>&1 || start "" /B "%OLLAMA%" serve
     timeout /t 5 /nobreak >nul
-    echo Downloading her models (about 6 GB, first time only^)...
+    echo Downloading her models - about 6 GB, first time only...
     "%OLLAMA%" pull qwen3-vl:8b-instruct || goto :error
     "%OLLAMA%" pull nomic-embed-text || goto :error
 )
@@ -47,7 +47,7 @@ if defined NEED (
 rem --- Avatar (Node.js) ------------------------------------------------------------
 cd /d "%~dp0body"
 if not exist node_modules (
-    echo Installing her avatar (first time only)...
+    echo Installing her avatar - first time only...
     call npm ci --no-audit --no-fund || goto :error
 )
 

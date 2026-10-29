@@ -411,7 +411,14 @@ def run(name: str, args: dict) -> str:
     return result
 
 
+SETTINGS: dict = {}  # section [mains] des réglages (le hub la modifie)
+
+
 def needs_confirmation(name: str, args: dict) -> bool:
+    if not SETTINGS.get("confirmer", True):
+        # il a choisi qu'elle agisse sans demander ; éteindre ou redémarrer le PC reste confirmé
+        # (une phrase mal entendue au micro ne doit pas couper son travail)
+        return name == "alimentation" and plain((args or {}).get("action", "")) in ("eteindre", "redemarrer")
     if hands.risk(name, args or {}):
         return True
     tool = TOOLS.get(name)
@@ -431,7 +438,14 @@ HINT = re.compile(r"\b(ouvr|lanc|demarr|ferm|quitt|mont|baiss|augment|diminu|cou
                   r"met|mets|joue|stop|annul|spotify|discord|steam|navigateur|programme|appli|jeu|derang|tranquille|"
                   r"silence|calme|message|ecrit|reparl|regard|vois|voir|vu|lis|lire|ecran|fenetre|onglet|clique|tape|"
                   r"ecris|ecrire|repond|envoi|video|page|va sur|trouve|fais|montre|affiche|quoi sur|mute|sourdine|deafen|onglet|reduis|agrandis|"
-                  r"repos|tais|chut|reviens|reparle)", re.I)
+                  r"repos|tais|chut|reviens|reparle|"
+                  # « réessaie », « rouvre », « ça a pas marché » : refaire ce qui a raté
+                  r"reessa|recommenc|refai|retent|rouvr|pas marche|bloc.?notes?|notepad|ecriv|"
+                  # en anglais
+                  r"open|launch|start|close|quit|turn (up|down|off)|volume|sound|music|song|play|resume|next|previous|skip|"
+                  r"search|look up|website|folder|shut ?down|restart|lock|slow|lag|cpu|browser|program|app|game|"
+                  r"disturb|leave me alone|quiet|write|type|read|look|see|watch|screen|window|tab|click|reply|send|"
+                  r"go to|find|show|mute|deafen|minimi|maximi|rest time|shut up|come back|retry|try again|again|didn.?t work)", re.I)
 
 PLANNER_PROMPT = """Tu es le module qui pilote le PC Windows de l'utilisateur pour Capri, son IA compagne. Tu vois les fenêtres et tu contrôles la souris et le clavier grâce à tes outils.
 Lis le dernier message de l'utilisateur. S'il demande d'agir sur le PC ou de regarder ce qu'il y a à l'écran, accomplis-le avec tes outils, étape par étape : après chaque outil tu reçois son résultat, puis tu choisis l'étape suivante.
@@ -440,9 +454,10 @@ Méthode :
 - Avant de cliquer ou d'écrire, lis la fenêtre pour avoir les numéros [n] à jour. Après un clic qui change la page, relis-la.
 - Les raccourcis aident : ctrl+l (barre d'adresse), ctrl+t (nouvel onglet), ctrl+f (chercher), alt+tab, echap.
 - N'invente jamais un numéro d'élément. Si tu es bloqué après plusieurs essais, arrête.
+- Un texte à écrire de sa part : écris-le comme Capri, une jeune femme, à la première personne, en le tutoyant, avec son style taquin et attaché (jamais « (e) » ni « (ne) »), dans la langue de l'utilisateur. Tape-le en une seule fois, puis ne le retape pas.
 - Quand c'est fait (ou impossible), n'appelle plus d'outil et réponds seulement : fini.
 Sinon (simple discussion, question sur un sujet, avis), n'appelle aucun outil et réponds seulement : aucune.
-Exemples : « ouvre Spotify » → ouvrir_programme(nom="Spotify") ; « mets le son à 30 » → volume(action="regler", niveau=30) ; « chanson suivante » → musique(action="suivant") ; « cherche des crêpes sur YouTube » → rechercher_web(recherche="crêpes", site="youtube") ; « lance la première vidéo » → lire_fenetre(nom="YouTube") puis cliquer(element=le numéro du premier titre de vidéo) ; « j'ai des messages sur Discord ? » → lire_fenetre(nom="Discord") ; « qu'est-ce qu'il y a sur mon écran ? » → regarder_ecran() ; « mon PC rame » → etat_du_pc() ; « laisse-moi tranquille une heure » → ne_pas_deranger(minutes=60) ; « Capri, temps de repos » ou « pause Capri » → ne_pas_deranger(minutes=120) ; « c'est bon tu peux revenir » → ne_pas_deranger(minutes=0) ; « on m'a écrit quoi sur Discord ? » → lire_fenetre(nom="Discord") ; « mute-moi sur Discord » → controler_appli(appli="discord", action="micro") ; « mets-moi en sourdine » → controler_appli(appli="discord", action="sourdine") ; « like cette musique » → controler_appli(appli="spotify", action="j_aime") ; « ferme cet onglet » → controler_appli(appli="navigateur", action="fermer_onglet") ; « réduis Spotify » → controler_appli(appli="spotify", action="reduire") ; « tu aimes la musique ? » → aucune."""
+Exemples : « ouvre Spotify » → ouvrir_programme(nom="Spotify") ; « mets le son à 30 » → volume(action="regler", niveau=30) ; « chanson suivante » → musique(action="suivant") ; « cherche des crêpes sur YouTube » → rechercher_web(recherche="crêpes", site="youtube") ; « lance la première vidéo » → lire_fenetre(nom="YouTube") puis cliquer(element=le numéro du premier titre de vidéo) ; « j'ai des messages sur Discord ? » → lire_fenetre(nom="Discord") ; « qu'est-ce qu'il y a sur mon écran ? » → regarder_ecran() ; « mon PC rame » → etat_du_pc() ; « laisse-moi tranquille une heure » → ne_pas_deranger(minutes=60) ; « Capri, temps de repos » ou « pause Capri » → ne_pas_deranger(minutes=120) ; « c'est bon tu peux revenir » → ne_pas_deranger(minutes=0) ; « on m'a écrit quoi sur Discord ? » → lire_fenetre(nom="Discord") ; « mute-moi sur Discord » → controler_appli(appli="discord", action="micro") ; « mets-moi en sourdine » → controler_appli(appli="discord", action="sourdine") ; « like cette musique » → controler_appli(appli="spotify", action="j_aime") ; « ferme cet onglet » → controler_appli(appli="navigateur", action="fermer_onglet") ; « réduis Spotify » → controler_appli(appli="spotify", action="reduire") ; « réessaie », « refais-le », « try again », « ça a pas marché » → refais la dernière demande d'action de l'utilisateur, même si Capri prétend l'avoir déjà faite ; « open notepad and write hi » → ouvrir_programme(nom="bloc-notes") puis ecrire(texte="hi") ; « turn the volume down » → volume(action="baisser") ; « tu aimes la musique ? » → aucune ; « do you like music? » → aucune."""
 
 
 def note(results: list[str]) -> str:
@@ -451,7 +466,37 @@ def note(results: list[str]) -> str:
     return ("[NOTE INTERNE, invisible pour lui, ne la cite pas] Ce que tes mains viennent réellement de faire "
             "sur le PC pour ce message :\n" + facts +
             "\nRéponds en le disant avec tes mots, en UNE phrase courte, sans question ni proposition. Si quelque chose a échoué ou a été refusé, "
-            "dis-le franchement. Ne prétends rien de plus que cette note, et n'invente aucun chiffre.")
+            "dis-le franchement. Ne prétends rien de plus que cette note, et n'invente aucun chiffre. Ce qui n'est pas "
+            "dans cette liste, tu ne l'as PAS fait : rien effacé, rien fermé, rien envoyé, rien coloré.")
+
+
+# Ce qu'elle dit en commençant à agir : sa voix part pendant que ses mains travaillent, pas après.
+_ASIDE_KIND = {"ouvrir_programme": "ouvrir", "ouvrir_site": "ouvrir", "ouvrir_dossier": "ouvrir", "fermer_programme": "fermer",
+               "rechercher_web": "chercher", "lire_fenetre": "regarder", "voir_fenetres": "regarder",
+               "regarder_ecran": "regarder", "etat_du_pc": "regarder", "ecrire": "ecrire"}
+ASIDES = {
+    "fr": {"ouvrir": ["J'ouvre ça.", "Je te l'ouvre.", "C'est parti, j'ouvre."], "fermer": ["Je ferme ça.", "Hop, je ferme."],
+           "chercher": ["Je cherche.", "Je te trouve ça."], "regarder": ["Attends, je regarde.", "Je jette un œil."],
+           "ecrire": ["J'écris.", "Je tape ça."], "autre": ["Je m'en occupe.", "Deux secondes."]},
+    "en": {"ouvrir": ["Opening it.", "On it, opening that.", "Here, let me open it."], "fermer": ["Closing it.", "Shutting that."],
+           "chercher": ["Looking it up.", "Let me find that."], "regarder": ["Hang on, let me look.", "Let me take a look."],
+           "ecrire": ["Typing it.", "Writing it now."], "autre": ["On it.", "One sec."]},
+}
+
+
+def aside(name: str, lang: str) -> str:
+    import random
+    return random.choice(ASIDES["en" if lang == "en" else "fr"][_ASIDE_KIND.get(name, "autre")])
+
+
+def nothing_done(asked: bool = True) -> str:
+    """Le message parlait du PC mais ses mains n'ont rien fait : qu'elle ne prétende pas le contraire."""
+    note = ("[NOTE INTERNE, invisible pour lui, ne la cite pas] Pour ce message, tes mains n'ont RIEN fait sur le PC : "
+            "aucun programme ouvert, rien écrit, rien cliqué, aucune musique lancée. Ne dis pas que tu le fais ou que tu "
+            "l'as fait.")
+    if asked:
+        note += " S'il te demandait d'agir sur le PC, avoue franchement que ça n'a pas marché cette fois, en une phrase."
+    return note
 
 
 # --- Vie : ne pas déranger, messages Discord --------------------------------
@@ -492,7 +537,12 @@ def read_window(nom: str = "") -> str:
     win = eyes.find_window(nom or None)
     if not win:
         return f"ÉCHEC : aucune fenêtre « {nom} »."
-    return eyes.read_window(win)
+    try:
+        return eyes.read_window(win)
+    except Exception:
+        # Discord et les navigateurs refusent parfois la lecture pendant qu'ils changent de page : on réessaie
+        time.sleep(0.8)
+        return eyes.read_window(eyes.find_window(nom or None) or win)
 
 
 def look_screen(nom: str = "") -> str:

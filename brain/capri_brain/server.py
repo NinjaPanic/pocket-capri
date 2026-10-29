@@ -65,6 +65,8 @@ RIVALS = re.compile(r"youtube|netflix|twitch|prime video|disney|crunchyroll|vlc|
 
 # Crochets laissés dans une réponse (didascalies, rire…)
 BRACKETS = re.compile(r"\[([^\]\n]{1,60})\]")
+# elle se met à réciter la note qu'on lui a glissée : on coupe là
+LEAK = re.compile(r"NOTE\s+INTERNE|INTERNAL\s+NOTE|\[\s*NOTE", re.I)
 
 # Ses expressions : quand il lui demande de rire, pleurer, crier… elle le FAIT (sa voix et son avatar), au lieu
 # de le raconter. (verbe dans la demande, son joué par la voix, animation de l'avatar, ce qu'elle vient de faire)
@@ -81,6 +83,42 @@ EXPRESSION_ASK = {k: re.compile(_ASK.replace("{v}", v[0]), re.I) for k, v in EXP
 
 def expression_request(text: str) -> str | None:
     return next((k for k, rx in EXPRESSION_ASK.items() if rx.search(text)), None)
+
+
+# « assieds-toi », « allonge-toi », « danse » : son avatar le fait vraiment (le nom est celui de l'avatar)
+POSES = [
+    (r"allonge[- ]toi|t'?allonger|couche[- ]toi|te coucher|lie down|lay down", "lie_side", "t'allonger"),
+    (r"en tailleur|cross[- ]legged", "cross_legged", "t'asseoir en tailleur"),
+    (r"[àa] genoux|kneel", "kneel", "te mettre à genoux"),
+    (r"accroupi|squat|crouch", "crouch", "t'accroupir"),
+    (r"genou relev|knee up", "knee_up", "t'asseoir un genou relevé"),
+    (r"jambes dans le vide|dangle", "dangle_legs", "t'asseoir les jambes dans le vide"),
+    # (toutes les façons de l'écrire ou de le dicter : assieds-toi, assis-toi, assied toi, assois-toi, assoie-toi…)
+    (r"\bass(?:ieds?|is|oi[es]?|eoi?s?)[- ]?toi\b|t'?ass(?:eoir|oir)|sit down|\bsit\b|have a seat|take a seat", "sit", "t'asseoir"),
+    (r"l[eè]ve[- ]toi|te lever|mets[- ]toi debout|stand up|get up", "stand", "te lever"),
+    (r"mains sur les hanches|hands on (your )?hips", "hands_hips", "mettre les mains sur les hanches"),
+    (r"sur une jambe|on one leg", "one_leg", "tenir sur une jambe"),
+    (r"crois(e|er) les jambes|cross your legs", "legs_crossed", "croiser les jambes"),
+    (r"\bdanse\b|\bdanser\b|\bdance\b", "dance", "danser"),
+    (r"envole[- ]toi|\bvole\b|\bvoler\b|\bfly\b", "fly", "t'envoler ailleurs sur l'écran"),
+    (r"va marcher|marche un peu|prom[eè]ne[- ]toi|go for a walk|walk around", "walk", "marcher"),
+    (r"tourne sur toi|une? (vrille|pirouette)|\bspin\b", "spin", "tourner sur toi-même"),
+    (r"[ée]tire[- ]toi|t'?[ée]tirer|\bstretch\b", "stretch", "t'étirer"),
+    (r"fais (moi )?coucou|salue[- ]moi|\bwave\b", "wave", "faire coucou"),
+]
+POSE_ASK = [(re.compile(rx, re.I), emote, verb) for rx, emote, verb in POSES]
+MOVES = {"dance", "fly", "walk", "spin", "stretch", "wave"}  # des gestes, pas des positions qu'elle garde
+
+
+def pose_request(text: str) -> tuple[str, str] | None:
+    # apostrophe courbe (téléphone, hub) ou absente (dictée) : « t’asseoir », « t asseoir » → « t'asseoir »
+    text = re.sub(r"\b([tm])[’ ](?=[aeéiou])", r"\1'", text.replace("’", "'"), flags=re.I)
+    for rx, emote, verb in POSE_ASK:
+        if rx.search(text):
+            if emote == "lie_side" and re.search(r"ventre|belly|stomach|front", text, re.I):
+                return "lie_belly", "t'allonger sur le ventre"
+            return emote, verb
+    return None
 
 
 # « oublie X » / « arrête de parler de X »
@@ -118,6 +156,7 @@ class Capri:
         self.voice = None
         self.voice_status = "désactivée" if not self.voice_cfg.get("enabled") else "chargement"
         self.reply_id = 0
+        self._live: dict | None = None  # sa réponse déjà commencée (elle parle pendant que ses mains agissent)
         self.pending: tuple[str, dict, float] | None = None  # action risquée en attente d'un « oui »
         self.abort = False  # « stop » / touche panique : arrête ce que ses mains sont en train de faire
         self.action_log: deque = deque(maxlen=200)
@@ -223,8 +262,15 @@ class Capri:
             ]
             # Ses mains agissent avant qu'elle parle ; ce qui s'est vraiment passé accompagne le message.
             note, image, prelude = await self.settle_pending(text), None, None
+            if not note and (pose := pose_request(text)):
+                emote, verb = pose
+                await self.broadcast({"type": "emote", "name": emote})  # son avatar le fait, là, tout de suite
+                note = (f"[NOTE INTERNE, ne la cite pas] Ton corps sur son bureau vient VRAIMENT de {verb}, à l'instant. "
+                        "Dis-le en quelques mots naturels, au présent ou au passé (jamais « je vais », jamais « il me faut "
+                        "du temps »)" + (", et reste dans cette position." if emote not in MOVES else
+                                         ", c'est un mouvement : ne parle pas de ta position d'avant."))
             if not note:
-                note, image = await self.plan_actions(text, history)
+                note, image = await self.plan_actions(text, history, reply_id)
             # il parle de lui : ce qu'elle sait vraiment, collé à sa question (sinon le modèle brode ou invente)
             if not note and ABOUT_ME.search(text):
                 known = [f"il s'appelle {self.name}"] if self.name else ["tu ne connais pas son prénom"]
@@ -252,6 +298,8 @@ class Capri:
                         + (f" ; ta dernière pensée : {journal}" if journal else "")
                         + (f" ; tu as lu : {' / '.join(read)}" if read else "")
                         + ". Raconte ça avec tes mots, n'invente pas d'autres activités.")
+            if not note and actions.HINT.search(actions.plain(text)):
+                note = actions.nothing_done(asked=False)  # il parlait du PC sans rien demander : qu'elle ne s'invente pas d'action
             question = {"role": "user", "content": f"{text}\n\n{note}" if note else text}
             if image:
                 question["images"] = [image]
@@ -262,7 +310,11 @@ class Capri:
             wants_long = re.search(r"\b(explique|détaille|liste|code|programme|étapes|tuto|résume|écris[- ]moi|raconte)", text, re.I)
             gate = QuestionGate("?" not in last[-80:] and random.random() < 0.35,
                                 max_sentences=0 if wants_long else 5 if spoken else 7)
-            reply = await self._respond(messages, reply_id, gate, prelude)
+            if self.pending:
+                # une action sensible attend son « oui » : la question est fixe, le modèle ne peut pas prétendre l'avoir faite
+                reply = await self._ask_confirmation(reply_id)
+            else:
+                reply = await self._respond(messages, reply_id, gate, prelude)
         if reply is not None:
             self.spawn(self.learn(text, reply, memories))
 
@@ -342,17 +394,50 @@ class Capri:
             log.info("Capri prend la parole : %s", event[:120])
             return await self._respond(messages, reply_id, QuestionGate(True, max_sentences=4)) is not None
 
+    async def _open_reply(self, reply_id: int) -> dict:
+        """Sa réponse commence : affichée et dite phrase par phrase. Ouverte en avance quand elle parle en agissant."""
+        if self._live is None or self._live["id"] != reply_id:
+            speech = splitter = None
+            await self.broadcast({"type": "start"})
+            if self.has_speaker:
+                from .voice import SentenceSplitter
+                splitter = SentenceSplitter()
+                speech = asyncio.Queue()
+                self.spawn(self.speak(speech, reply_id))
+            self._live = {"id": reply_id, "speech": speech, "splitter": splitter, "parts": []}
+        return self._live
+
+    async def _ask_confirmation(self, reply_id: int) -> str:
+        name, args, _ = self.pending
+        what = actions.describe(name, args)
+        english = self.voice_cfg.get("langue", "en") == "en"
+        await self._aside(reply_id, "Everything's ready, I'm just waiting for your go. Should I do it?" if english else
+                          f"Tout est prêt, mais j'attends ton feu vert : {what} ?")
+        live = await self._open_reply(reply_id)
+        self._live = None
+        if live["speech"]:
+            live["speech"].put_nowait(None)
+        reply = clean_reply("".join(live["parts"]))
+        self.memory.add_message("assistant", reply, "capri", self.mood)
+        await self.broadcast({"type": "done", "text": reply, "mood": self.mood})
+        return reply
+
+    async def _aside(self, reply_id: int, line: str) -> None:
+        """Une petite phrase dite pendant que ses mains agissent ; la suite de sa réponse viendra après."""
+        if reply_id != self.reply_id:
+            return
+        live = await self._open_reply(reply_id)
+        live["parts"].append(line + " ")
+        await self.broadcast({"type": "delta", "text": line + " "})
+        if live["speech"]:
+            live["speech"].put_nowait(line)
+
     async def _respond(self, messages: list[dict], reply_id: int, gate: QuestionGate | None = None,
                        prelude: tuple[str, str] | None = None) -> str | None:
         """Diffuse sa réponse (texte, humeur, voix) puis l'enregistre. None en cas d'erreur."""
-        await self.broadcast({"type": "start"})
-        speech: asyncio.Queue | None = None
-        splitter = None
-        if self.has_speaker:
-            from .voice import SentenceSplitter
-            splitter = SentenceSplitter()
-            speech = asyncio.Queue()
-            self.spawn(self.speak(speech, reply_id))
+        live = await self._open_reply(reply_id)
+        self._live = None
+        speech, splitter, parts = live["speech"], live["splitter"], live["parts"]
         if prelude:  # son expression (rire, pleurs…) : affichée et dite en premier, avec la voix qui va avec
             sound, how = prelude
             await self.broadcast({"type": "delta", "text": sound + " "})
@@ -360,7 +445,7 @@ class Capri:
                 speech.put_nowait((sound, how))
 
         parser = MoodParser()
-        parts: list[str] = []
+        leaked = False
 
         async def emit(out: str) -> None:
             # pas de mise en forme (gras, puces) : elle parle, elle n'écrit pas un rapport
@@ -386,6 +471,11 @@ class Capri:
                     await self.set_mood(mood)
                 if out:
                     await emit(out)
+                if out and (leak := LEAK.search(said := "".join(parts))):
+                    parts[:] = [said[:leak.start()].rstrip(" \n—–-([")]
+                    leaked = True
+                    await stream.aclose()
+                    break
                 if gate and gate.stopped:
                     await stream.aclose()  # elle radotait ou en avait assez dit : on coupe proprement
                     break
@@ -402,7 +492,7 @@ class Capri:
             if self.voice and self.voice.thinking:
                 self.voice.thinking -= 1
             if speech:
-                for sentence in splitter.flush():
+                for sentence in ([] if leaked else splitter.flush()):
                     speech.put_nowait(sentence)
                 speech.put_nowait(None)
 
@@ -415,22 +505,25 @@ class Capri:
 
     # --- Mains ----------------------------------------------------------------
 
-    async def plan_actions(self, text: str, history: list[dict]) -> tuple[str | None, str | None]:
+    async def plan_actions(self, text: str, history: list[dict], reply_id: int) -> tuple[str | None, str | None]:
         """Si le message ressemble à une demande d'action, un passage dédié (sans personnage) enchaîne
         les outils : il regarde, agit, regarde le résultat… jusqu'à ce que ce soit fait.
         Renvoie la note pour Capri (ce qui s'est vraiment passé) et la dernière capture d'écran."""
         # une discussion ordinaire ne passe pas par le module d'actions : un appel du modèle en moins
         if len(actions.plain(text)) < 3 or not actions.HINT.search(actions.plain(text)):
             return None, None
-        last = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
-        messages = [{"role": "system", "content": actions.PLANNER_PROMPT}]
-        if last:
-            messages.append({"role": "assistant", "content": last})
-        messages.append({"role": "user", "content": text})
+        # le dernier échange aussi : « réessaie » ou « rouvre-le » n'ont de sens qu'avec la demande d'avant
+        english = self.voice_cfg.get("langue", "en") == "en"
+        messages = [{"role": "system", "content": actions.PLANNER_PROMPT + (
+            "\nL'utilisateur parle ANGLAIS : tout texte que tu tapes pour lui est écrit en anglais." if english else "")}]
+        # (seulement sa demande à lui : avec la réponse de Capri sous les yeux, le module se met à discuter au lieu d'agir)
+        before = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+        messages.append({"role": "user", "content": (f"(Sa demande précédente : « {before[:400]} »)\n" if before else "") + text})
         done: list[str] = []
         reading = image = None
         self.abort = False
-        steering = False
+        steering = announced = False
+        said = ""  # ce que le module écrit au lieu d'agir (« aucune » : ce n'était pas une demande d'action)
         try:
             for step in range(MAX_STEPS):
                 if self.abort or (steering and hands.user_took_over()):
@@ -438,16 +531,28 @@ class Capri:
                     break
                 calls: list[ToolCall] = []
                 chatter = 0
-                async for item in self.llm.stream(messages, tools=actions.TOOL_SCHEMAS, temperature=0.0):
-                    if isinstance(item, ToolCall):
-                        calls.append(item)
-                    elif (chatter := chatter + len(item)) > 40 and not calls:
-                        break  # il écrit du texte au lieu d'agir : rien à faire, inutile d'attendre la fin
+                if self.voice:
+                    self.voice.thinking += 1  # la voix locale attend : la carte graphique ne fait qu'une chose à la fois
+                try:
+                    async for item in self.llm.stream(messages, tools=actions.TOOL_SCHEMAS, temperature=0.0):
+                        if isinstance(item, ToolCall):
+                            calls.append(item)
+                        else:
+                            said += item
+                            if (chatter := chatter + len(item)) > 40 and not calls:
+                                break  # il écrit du texte au lieu d'agir : rien à faire, inutile d'attendre la fin
+                finally:
+                    if self.voice:
+                        self.voice.thinking -= 1
 
                 if not calls:
                     break
                 messages.append(self._assistant_calls(calls))
                 for call in calls[:3]:
+                    if not announced and (call.name in actions._ASIDE_KIND or call.name in actions.HANDS) \
+                            and not actions.needs_confirmation(call.name, call.arguments):
+                        announced = True  # elle le dit pendant que ses mains s'y mettent
+                        await self._aside(reply_id, actions.aside(call.name, self.voice_cfg.get("langue", "en")))
                     if call.name in actions.HANDS and not steering:
                         steering = True
                         hands.start_session()
@@ -471,7 +576,9 @@ class Capri:
             if steering:
                 await self.broadcast({"type": "control", "active": False})
         if not done:
-            return None, None
+            # rien fait : si c'était bien une demande d'action, qu'elle ne prétende pas l'avoir faite
+            # (« aucune » : ce n'était pas une demande d'action, la note légère viendra seulement s'il n'y en a pas d'autre)
+            return (None if actions.plain(said).startswith(("aucune", "none")) else actions.nothing_done()), None
         if reading:
             done.append(f"ce que tu as lu en dernier (sers-t'en pour répondre) :\n{reading[:5000]}")
         if image:
@@ -784,12 +891,13 @@ class Capri:
 # Réglages modifiables depuis le hub : section → clés autorisées et leur type.
 EDITABLE = {
     "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int},
-    "voix": {"wake_word": bool, "follow_up_seconds": float, "end_silence": float, "tts_speed": float},
+    "mains": {"confirmer": bool},
+    "voix": {"wake_word": bool, "follow_up_seconds": float, "end_silence": float, "tts_speed": float, "tts_pitch": int},
 }
 AVATAR_KEYS = {"character.scale", "character.opacity", "character.alwaysOnTop", "character.clickThrough",
                "character.hideOnFullscreen", "character.glitchEffects", "character.animationIntensity",
                "behavior.doNotDisturb", "behavior.idlePeek", "behavior.sleepAfterMinutes",
-               "teleport.auto", "teleport.minMinutes", "teleport.maxMinutes", "teleport.effects"}
+               "teleport.auto", "teleport.minMinutes", "teleport.maxMinutes", "teleport.effects", "startup.launchOnLogin"}
 
 
 OVERRIDES_FILE = BRAIN / "data" / "reglages.json"
@@ -843,10 +951,11 @@ def apply_overrides(cfg: dict) -> None:
         elif section in EDITABLE and isinstance(values, dict):
             target = cfg.setdefault("voice" if section == "voix" else section, {})
             target.update({k: v for k, v in values.items()
-                           if k in EDITABLE[section] or (section == "voix" and k in ("tts_engine", "tts_natural_voice"))})
+                           if k in EDITABLE[section] or (section == "voix" and k in ("tts_engine", "tts_natural_voice", "tts_natural_voice_en"))})
 
 
 capri = Capri(CONFIG)
+actions.SETTINGS = CONFIG.setdefault("mains", {})  # le même dictionnaire : un changement dans le hub s'applique tout de suite
 
 
 @asynccontextmanager
@@ -892,6 +1001,7 @@ async def hub_css():
 @app.get("/api/reglages")
 async def get_settings():
     return {"avatar": capri.avatar, "vie": CONFIG.get("vie", {}), "voix": CONFIG.get("voice", {}),
+            "mains": {"confirmer": CONFIG.get("mains", {}).get("confirmer", True)},
             "quiet_until": actions.QUIET_UNTIL, "cerveau": brain_settings(),
             "toi": {"prenom": capri.name, "langue": CONFIG.get("toi", {}).get("langue", "en")}}
 
@@ -909,11 +1019,11 @@ async def shutdown():
 
 @app.get("/api/voix")
 async def voices():
-    from .voice import NATURAL_VOICES
+    from .voice import NATURAL_VOICES, chosen_voice
     from .voice import local_voice_installed, local_voice_ready
     return {"natural": NATURAL_VOICES, "engine": CONFIG["voice"].get("tts_engine", "edge"),
             "local": {"installed": local_voice_installed(), "ready": await local_voice_ready()},
-            "voice": CONFIG["voice"].get("tts_natural_voice", "fr-FR-VivienneMultilingualNeural")}
+            "voice": chosen_voice(capri.voice_cfg), "pitch": capri.voice_cfg.get("tts_pitch", 0)}
 
 
 @app.post("/api/voix/reference")
@@ -938,7 +1048,9 @@ async def voice_test():
         return JSONResponse({"error": "voix pas encore chargée"}, status_code=400)
     await capri.stop_voice()
     queue: asyncio.Queue = asyncio.Queue()
-    for sentence in ("Alors, cette voix-là, elle te plaît ?", "Dis-moi la vérité, je saurai si tu mens."):
+    english = capri.voice_cfg.get("langue", "en") == "en"
+    for sentence in (("So, do you like this voice?", "Tell me the truth, I'll know if you're lying.") if english else
+                     ("Alors, cette voix-là, elle te plaît ?", "Dis-moi la vérité, je saurai si tu mens.")):
         queue.put_nowait(sentence)
     queue.put_nowait(None)
     capri.spawn(capri.speak(queue, capri.reply_id))
@@ -1020,6 +1132,8 @@ async def put_settings(request: Request):
         allowed = ("edge", "local", "kokoro") if key == "tts_engine" else tuple(NATURAL_VOICES)
         if value not in allowed:
             return JSONResponse({"error": "voix inconnue"}, status_code=400)
+        if key == "tts_natural_voice" and capri.voice_cfg.get("langue", "en") == "en":
+            key = "tts_natural_voice_en"  # une voix par langue : celle choisie en anglais ne remplace pas la française
         CONFIG.setdefault("voice", {})[key] = value
         save_override("voix", key, value)
         from .voice import start_local_voice, stop_local_voice
@@ -1045,7 +1159,7 @@ def save_override(section: str, key: str, value) -> None:
 async def state():
     return {"status": capri.status, "model": capri.llm.label, "voice": capri.voice_status, "mood": capri.mood,
             "memories": len(capri.memory.list_memories()), "actions": len(capri.action_log),
-            "avatar": capri.avatar is not None, "quiet": actions.quiet(), "inner": capri.inner.summary()}
+            "avatar": capri.avatar is not None, "quiet": actions.quiet(), "inner": capri.inner.summary(capri.voice_cfg.get("langue", "en"))}
 
 
 @app.get("/editeur")

@@ -1,7 +1,9 @@
 """Accès aux modèles de langage : Ollama (sur ce PC) ou un service en ligne au format OpenAI
 (OpenAI, Google Gemini, Anthropic Claude, xAI Grok, Groq, Mistral, OpenRouter, DeepSeek)."""
 
+import asyncio
 import json
+import re
 import logging
 import os
 from dataclasses import dataclass
@@ -30,6 +32,15 @@ PROVIDERS: dict[str, dict] = {
 }
 
 log = logging.getLogger("capri")
+
+
+# la carte graphique a calé (mémoire partagée avec la voix locale, image trop lourde…) : Ollama relance
+# son moteur tout seul, la même demande passe en général au deuxième essai
+GPU_CRASH = re.compile(r"cuda|illegal memory|out of memory|runner (process )?(has )?(terminated|exited)|unexpected eof|llama runner", re.I)
+
+
+class _GpuCrash(Exception):
+    pass
 
 
 class LLMError(Exception):
@@ -131,6 +142,10 @@ class LLM:
                 pass
         await self.embed(["search_query: test"])
 
+    async def _gpu_pause(self, detail: str) -> None:
+        log.warning("Ollama a planté sur la carte graphique (%s) : nouvel essai", detail[:120])
+        await asyncio.sleep(2)
+
     async def _ollama_stream(
         self, messages: list[dict], temperature: float, json_mode: bool, max_tokens: int | None = None,
         tools: list[dict] | None = None,
@@ -152,7 +167,8 @@ class LLM:
             body["format"] = "json"
         if tools:
             body["tools"] = tools
-        for attempt in range(2):
+        yielded = False
+        for attempt in range(3):
             if self._send_think:
                 body["think"] = False
             else:
@@ -169,21 +185,28 @@ class LLM:
                                 f"Le modèle « {self.ollama['model']} » n'est pas installé. "
                                 f"Lance : ollama pull {self.ollama['model']}"
                             )
+                        if attempt < 2 and GPU_CRASH.search(detail):
+                            await self._gpu_pause(detail)
+                            continue
                         raise LLMError(f"Ollama : {detail[:300]}")
                     async for line in r.aiter_lines():
                         if not line:
                             continue
                         data = json.loads(line)
                         if "error" in data:
+                            if attempt < 2 and not yielded and GPU_CRASH.search(str(data["error"])):
+                                raise _GpuCrash(str(data["error"]))
                             raise LLMError(f"Ollama : {data['error']}")
                         message = data.get("message", {})
                         if piece := message.get("content", ""):
+                            yielded = True
                             yield piece
                         for call in message.get("tool_calls") or []:
                             fn = call.get("function", {})
                             args = fn.get("arguments") or {}
                             if isinstance(args, str):
                                 args = json.loads(args or "{}")
+                            yielded = True
                             yield ToolCall(fn.get("name", ""), args, call.get("id", ""))
                         if data.get("done"):
                             log.info(
@@ -195,6 +218,9 @@ class LLM:
                             )
                             return
                     return
+            except _GpuCrash as e:
+                await self._gpu_pause(str(e))
+                continue
             except httpx.ConnectError as e:
                 raise LLMError("Ollama ne répond pas. Il est bien installé et lancé ?") from e
             except httpx.HTTPError as e:

@@ -6,7 +6,8 @@ import type { Params } from './params';
  * B = "Capri is a baddie" compilation of Netflix footage (Nli_SZ-DBco). See docs/ANIMATION_CATALOG.md.
  */
 export type PostureName = 'stand' | 'contrapposto' | 'sit_edge' | 'air_sit' | 'recline' | 'power_stance' | 'peek_left' | 'peek_right' | 'balance'
-  | 'fly' | 'float_lazy' | 'cross_legged' | 'kneel' | 'dangle_legs' | 'lie_belly' | 'hug_knees';
+  | 'fly' | 'float_lazy' | 'cross_legged' | 'kneel' | 'dangle_legs' | 'lie_belly' | 'hug_knees'
+  | 'crouch' | 'knee_up' | 'lean_back' | 'hands_hips' | 'one_leg' | 'legs_crossed' | 'lie_side';
 export type Surface = 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right';
 
 export interface Posture { name: PostureName; source: string; pose: Partial<Params>; surfaces: Surface[] }
@@ -68,7 +69,7 @@ export const POSTURES: Record<PostureName, Posture> = {
   },
   kneel: {
     name: 'kneel', source: 'interpretation', surfaces: ['taskbar', 'window'],
-    pose: { hipDrop: 120, thighL: 30, kneeL: 120, foreL: 0.7, thighR: 26, kneeR: 116, foreR: 0.7, armLRaise: 0.06, armRRaise: 0.06, headPitch: 0.1, float: 0.2 },
+    pose: { thighL: -14, kneeL: -95, thighR: -14, kneeR: -95, armLRaise: 0.06, armRRaise: 0.06, headPitch: 0.1 },
   },
   dangle_legs: {
     // sitting on the edge, both legs hanging over (the kick_feet clip swings them)
@@ -78,22 +79,60 @@ export const POSTURES: Record<PostureName, Posture> = {
   lie_belly: {
     // lying on her front along the ledge, chin in her hands, feet up
     name: 'lie_belly', source: 'interpretation', surfaces: ['taskbar', 'window'],
-    pose: { lean: 0.9, hipDrop: 150, thighL: -10, kneeL: 100, thighR: -4, kneeR: 80, armLRaise: 0.55, armRRaise: 0.55, zoom: 0.92, hairUp: 0.7, mouthSmile: 0.7, headPitch: -0.2 },
+    pose: { lean: 2.2, thighL: 4, kneeL: 95, thighR: -4, kneeR: 70, armLRaise: 0.55, armRRaise: 0.55, headRoll: -1.3, hairUp: 0.7, mouthSmile: 0.7 },
   },
   hug_knees: {
     name: 'hug_knees', source: 'interpretation', surfaces: ['air', 'taskbar', 'window'],
     pose: { hipDrop: 60, thighL: 130, foreL: 0.55, kneeL: 135, thighR: 128, foreR: 0.55, kneeR: 132, armLRaise: 0.35, armRRaise: 0.35, armSpread: 0, float: 0.6, headPitch: 0.2, squint: 0.2 },
+  },
+  crouch: {
+    // squatting on her heels, arms resting on the knees, watching what goes on below
+    name: 'crouch', source: 'interpretation', surfaces: ['taskbar', 'window'],
+    pose: { hipDrop: 110, thighL: 62, foreL: 0.6, kneeL: 125, thighR: 58, foreR: 0.6, kneeR: 120, armLRaise: 0.15, armRRaise: 0.15, armSpread: 0.15, headPitch: 0.18, gazeY: 0.3 },
+  },
+  knee_up: {
+    // sitting, one knee drawn up, the other leg stretched out along the ledge
+    name: 'knee_up', source: 'interpretation', surfaces: ['taskbar', 'window'],
+    pose: { hipDrop: 150, thighL: 125, kneeL: 150, thighR: 6, kneeR: 10, armLRaise: 0.3, armRRaise: 0.05, armSpread: 0.1, headRoll: 0.1 },
+  },
+  lean_back: {
+    // sitting, leaning back on both hands, legs stretched out
+    name: 'lean_back', source: 'interpretation', surfaces: ['taskbar', 'window'],
+    pose: { hipDrop: 150, thighL: -9, kneeL: 8, thighR: -5, kneeR: 4, lean: -0.22, armSpread: 0.55, armLRaise: 0, armRRaise: 0, headPitch: -0.12, squint: 0.3, mouthSmile: 0.5 },
+  },
+  hands_hips: {
+    // standing tall, hands on the hips, a little cocky
+    name: 'hands_hips', source: 'interpretation', surfaces: ['taskbar', 'window', 'air'],
+    pose: { thighL: 9, kneeL: 0, thighR: -6, kneeR: 6, armSpread: 0.3, armLRaise: 0.02, armRRaise: 0.02, armRWave: 1.6, hip: 0.7, headRoll: -0.1, headPitch: -0.08, mouthSmile: 0.6 },
+  },
+  one_leg: {
+    // balancing on one leg, the other folded up behind, arms out like a dancer
+    name: 'one_leg', source: 'interpretation', surfaces: ['taskbar', 'window', 'air'],
+    pose: { thighL: -6, kneeL: 0, thighR: 22, foreR: 0.8, kneeR: 120, armLRaise: 0.75, armRRaise: 0.7, armSpread: 0.2, headRoll: 0.12, mouthSmile: 0.6 },
+  },
+  legs_crossed: {
+    // standing with her legs crossed at the ankles, leaning a little, waiting
+    name: 'legs_crossed', source: 'interpretation', surfaces: ['taskbar', 'window', 'air'],
+    pose: { thighL: -14, kneeL: 4, thighR: 14, kneeR: 4, bodyRot: 0.04, lean: 0.05, armLRaise: 0.05, armRRaise: 0.05, armSpread: 0.05, headRoll: 0.14 },
+  },
+  lie_side: {
+    // lying on her side along the ledge, head propped on a hand
+    name: 'lie_side', source: 'interpretation (N 0:29, lying on her side)', surfaces: ['taskbar', 'window'],
+    pose: { lean: -2.2, thighL: 18, kneeL: 40, thighR: 4, kneeR: 8, armLRaise: 0.9, armRRaise: 0.1, headRoll: 1.3, squint: 0.35, mouthSmile: 0.6 },
   },
 };
 
 /** Which postures make sense for where she is on the desktop, with relative weights. */
 export function posturesFor(surface: Surface): [PostureName, number][] {
   switch (surface) {
-    case 'taskbar': return [['sit_edge', 4], ['recline', 2], ['contrapposto', 1], ['cross_legged', 1.5], ['kneel', 1], ['lie_belly', 1.5], ['hug_knees', 1]];
-    case 'window': return [['sit_edge', 3], ['dangle_legs', 3], ['recline', 1.5], ['balance', 1], ['cross_legged', 1.5], ['kneel', 1], ['lie_belly', 1]];
+    case 'taskbar': return [['sit_edge', 4], ['recline', 2], ['contrapposto', 1], ['cross_legged', 1.5], ['kneel', 1], ['lie_belly', 1.5], ['hug_knees', 1],
+      ['crouch', 1], ['knee_up', 1.5], ['lean_back', 1.5], ['hands_hips', 0.7], ['legs_crossed', 0.8], ['one_leg', 0.4], ['lie_side', 1.2]];
+    case 'window': return [['sit_edge', 3], ['dangle_legs', 3], ['recline', 1.5], ['balance', 1], ['cross_legged', 1.5], ['kneel', 1], ['lie_belly', 1],
+      ['crouch', 1], ['knee_up', 1.5], ['lean_back', 1.5], ['hands_hips', 0.6], ['legs_crossed', 0.6], ['lie_side', 1]];
     case 'edge_left': return [['peek_left', 1]];
     case 'edge_right': return [['peek_right', 1]];
     // in the air she never sits on nothing: she floats, lounges or just hangs there
-    default: return [['float_lazy', 3], ['recline', 2], ['contrapposto', 2], ['stand', 1.5], ['power_stance', 0.5]];
+    default: return [['float_lazy', 3], ['recline', 2], ['contrapposto', 2], ['stand', 1.5], ['power_stance', 0.5],
+      ['hands_hips', 0.8], ['legs_crossed', 0.8], ['one_leg', 0.5]];
   }
 }

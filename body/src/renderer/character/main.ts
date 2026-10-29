@@ -28,6 +28,8 @@ const EMOTE_MAP: Record<string, { react?: Reaction; clip?: string; posture?: Pos
   reveal: { clip: 'reveal_spread' }, loom: { clip: 'loom' }, facepalm: { clip: 'facepalm' }, yawn: { clip: 'yawn' },
   float: { posture: 'float_lazy' }, cross_legged: { posture: 'cross_legged' }, kneel: { posture: 'kneel' }, dangle_legs: { posture: 'dangle_legs' },
   lie_belly: { posture: 'lie_belly' }, hug_knees: { posture: 'hug_knees' }, sleep: { posture: 'hug_knees' }, stretch: { clip: 'stretch' },
+  crouch: { posture: 'crouch' }, knee_up: { posture: 'knee_up' }, lean_back: { posture: 'lean_back' }, hands_hips: { posture: 'hands_hips' },
+  one_leg: { posture: 'one_leg' }, legs_crossed: { posture: 'legs_crossed' }, lie_side: { posture: 'lie_side' },
   dance: { clip: 'dance_sway' }, cry: { clip: 'cry' }, shout: { clip: 'shout' }, sigh: { clip: 'sigh' }, look_around: { clip: 'look_around' }, flip: { clip: 'flip_air' },
 };
 
@@ -69,8 +71,14 @@ function modelPose(): PoseName {
 const anim = new Animator();
 const behavior = new Behavior();
 /** Bent-leg positions: the hand-drawn sitting sprite looks far more natural than the skeleton folding its legs. */
-const SEATED = new Set<PostureName>(['sit_edge', 'air_sit', 'cross_legged', 'kneel', 'hug_knees', 'dangle_legs', 'lie_belly']);
+const SEATED = new Set<PostureName>(['sit_edge', 'air_sit', 'cross_legged', 'kneel', 'hug_knees', 'dangle_legs', 'lie_belly',
+  'crouch', 'knee_up', 'lean_back', 'lie_side']);
 const onLedge = () => surface === 'taskbar' || surface === 'window';
+// the seated drawing only shows these two; every other position is bent on the skeleton
+const DRAWN_SEAT = new Set<PostureName>(['sit_edge', 'dangle_legs']);
+const perchDrawing = () => getFaceConfig().skeleton >= 0.5
+  ? onLedge() && DRAWN_SEAT.has(behavior.posture)
+  : surface === 'window' || (onLedge() && SEATED.has(behavior.posture));
 // ---------------------------------------------------------------- her own life on the desktop
 let ledge: { left: number; right: number } | null = null;
 let me: Rect | null = null; // her window (DIP), kept up to date as she moves herself
@@ -236,7 +244,7 @@ function tick(dt: number) {
   const drewSprite = getFaceConfig().spriteBody >= 0.5 && sprite.draw(g, p, dt, {
     sleeping: behavior.state === 'sleeping', waking: behavior.state === 'returning', dragging, dashing: walk,
     // with the articulated body, glitch and dance stay on it (the old frame-by-frame sheets have no joints)
-    glitching: getFaceConfig().skeleton < 0.5 && model.burst > 0.5, perched: (surface === 'window' || (onLedge() && SEATED.has(behavior.posture))) && !walk && !roamer.moving,
+    glitching: getFaceConfig().skeleton < 0.5 && model.burst > 0.5, perched: perchDrawing() && !walk && !roamer.moving,
     dancing: getFaceConfig().skeleton < 0.5 && !!behavior.clip && behavior.clipHistory[behavior.clipHistory.length - 1] === 'cheer', facing: model.facing, spin: roam.spin, grounded: onLedge(),
   }, W, H, SEAT_RATIO * H, (H * 0.72) / 384);
   if (drewSprite) model.tickGlitch(dt, settings.character.glitchEffects, p.glitch);
@@ -372,7 +380,7 @@ api.on('cue', (raw) => {
 api.on('settings:changed', (s) => { settings = s as Settings; shareSettings(); });
 /** Her brain keeps a copy of her body settings so the hub can show and change them. */
 function shareSettings() {
-  if (settings) brain.send({ type: 'avatar_state', settings: { character: settings.character, behavior: settings.behavior, teleport: settings.teleport } });
+  if (settings) brain.send({ type: 'avatar_state', settings: { character: settings.character, behavior: settings.behavior, teleport: settings.teleport, startup: settings.startup } });
 }
 
 // ---------------------------------------------------------------- boot

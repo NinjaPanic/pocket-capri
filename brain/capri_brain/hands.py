@@ -89,7 +89,8 @@ def type_text(text: str) -> None:
             _send(_key(0x10), _key(0x0D), _key(0x0D, flags=2), _key(0x10, flags=2))  # Maj+Entrée : nouvelle ligne
         else:
             _send(_key(0, ord(ch), 4), _key(0, ord(ch), 4 | 2))  # KEYEVENTF_UNICODE : accents compris
-        time.sleep(0.004)
+        # Le Bloc-notes de Windows 11 (et d'autres applis WinUI) perd des lettres en dessous de ~25 ms.
+        time.sleep(0.03)
 
 
 def cursor() -> tuple[int, int]:
@@ -209,7 +210,10 @@ def act_type(texte: str, element: int | None = None) -> str:
     type_text(texte)
     if m := MESSAGING.search(label):
         DRAFT["app"] = None if texte.endswith("\n") else m.group(0)
-    return f"Texte tapé : « {texte[:200]} »."
+    # en entier ou annoncé comme coupé ici seulement : sinon le module croit qu'il manque la fin et la retape
+    shown = texte if len(texte) <= 200 else texte[:200] + "… (la suite aussi)"
+    return (f"Texte tapé en entier ({len(texte)} caractères), ajouté là où était le curseur, "
+            f"sans rien effacer de ce qu'il y avait avant : « {shown} ».")
 
 
 def act_keys(touches: str) -> str:

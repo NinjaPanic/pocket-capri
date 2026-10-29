@@ -95,7 +95,10 @@ async def tts(request: Request):
     async with lock:  # une phrase à la fois sur la carte graphique
         t = time.time()
         lang = "en" if data.get("lang") == "en" else "fr"
-        pcm, rate = await asyncio.to_thread(speak, text, emotion, float(data.get("cfg", GUIDANCE)), lang)
+        # la voix de référence est française : en anglais, le guidage à 0 lui retire l'accent français
+        # (réglage conseillé par Chatterbox quand la langue de la référence diffère)
+        cfg = 0.0 if lang == "en" else float(data.get("cfg", GUIDANCE))
+        pcm, rate = await asyncio.to_thread(speak, text, emotion, cfg, lang)
     log.info("%.1fs de voix en %.1fs", len(pcm) / 2 / rate, time.time() - t)
     return Response(pcm, media_type="application/octet-stream", headers={"X-Rate": str(rate)})
 

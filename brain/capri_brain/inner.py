@@ -20,12 +20,24 @@ ACTIVITIES = {
     "lire": ("lire un article en ligne", "cross_legged", range(8, 24)),
     "musique": ("écouter de la musique en balançant les jambes", "dangle_legs", range(9, 24)),
     "rever": ("rêvasser en flottant", "float", range(0, 24)),
-    "code": ("bidouiller un petit programme, par curiosité", "look_around", range(10, 24)),
+    "code": ("bidouiller un petit programme, par curiosité", "lie_belly", range(10, 24)),
     "dessin": ("griffonner des formes de glitch dans un coin de ta mémoire", "hug_knees", range(10, 23)),
-    "observer": ("regarder ce qui se passe sur l'écran, l'air de rien", "look_around", range(8, 24)),
+    "observer": ("regarder ce qui se passe sur l'écran, l'air de rien", "crouch", range(8, 24)),
+    "detente": ("te prélasser sur le haut d'une fenêtre, appuyée sur les mains", "lean_back", range(9, 24)),
+    "penser": ("réfléchir à lui, un genou relevé, le menton dessus", "knee_up", range(8, 24)),
+    "paresse": ("paresser allongée sur le côté", "lie_side", list(range(13, 24)) + [0, 1]),
+    "equilibre": ("t'entraîner à tenir en équilibre sur une jambe", "one_leg", range(10, 22)),
     "danse": ("danser toute seule sur un son que tu as dans la tête", "dance", range(12, 24)),
     "sieste": ("somnoler, recroquevillée", "sleep", list(range(0, 8)) + [14, 15]),
     "etirement": ("t'étirer et faire quelques pirouettes", "stretch", range(8, 22)),
+}
+ACTIVITY_EN = {
+    "lire": "reading an article online", "musique": "listening to music, swinging her legs",
+    "rever": "daydreaming, floating", "code": "tinkering with a little program, out of curiosity",
+    "dessin": "doodling glitch shapes in a corner of her memory", "observer": "watching what happens on screen, casually",
+    "danse": "dancing alone to a tune in her head", "sieste": "dozing, curled up", "etirement": "stretching and doing a few twirls",
+    "detente": "lounging on top of a window, leaning back on her hands", "penser": "thinking about you, one knee up, chin on it",
+    "paresse": "lazing about, lying on her side", "equilibre": "practising balancing on one leg",
 }
 
 # Ce qu'elle lit pour de vrai : des flux d'articles publics, gratuits, faits pour être lus par des programmes.
@@ -173,8 +185,10 @@ class InnerLife:
             lines.append(f"Ta dernière pensée : {self.state['journal'][-1]['text']}")
         return "\n".join(lines)
 
-    def summary(self) -> dict:
+    def summary(self, lang: str = "fr") -> dict:
         what, _ = self.activity
+        if lang == "en":
+            what = ACTIVITY_EN.get(self.state["activity"], what)
         return {"activity": what, "feeling": self.state["feeling"], "affection": round(self.state["affection"]),
                 "journal": self.state["journal"][-12:][::-1],
                 "followups": [{"topic": f["topic"], "due": f["due"]} for f in self.state["followups"]],

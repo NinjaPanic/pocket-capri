@@ -230,11 +230,15 @@ const SETTINGS = [
     ["character.hideOnFullscreen", "Se cacher en plein écran", "jeux, vidéos", "bool"],
     ["character.glitchEffects", "Effets glitch", "", "bool"],
     ["behavior.doNotDisturb", "Avatar en mode discret", "", "bool"],
+    ["startup.launchOnLogin", "Lancer avec Windows", "elle arrive toute seule quand tu allumes le PC", "bool"],
   ]],
   ["Vie", "Ce qu'elle fait d'elle-même.", "vie", [
     ["accueil", "Remarquer ton retour", "", "bool"],
     ["absence_minutes", "Absence avant de te saluer", "minutes", "number", 1, 240],
     ["spontane_minutes", "Phrase spontanée après", "minutes de silence, 0 = jamais", "number", 0, 600],
+  ]],
+  ["Mains", "Quand elle pilote ton PC.", "mains", [
+    ["confirmer", "Demander avant d'envoyer, acheter, supprimer, fermer", "sinon elle le fait direct (éteindre le PC reste demandé)", "bool"],
   ]],
   ["Voix", "Comment elle t'écoute et te parle.", "voix", [
     ["wake_word", "Ne répondre qu'à « Capri »", "", "bool"],
@@ -432,7 +436,14 @@ async function voiceCard() {
   for (const [k, l] of Object.entries(v.natural)) { const o = el("option", null, l); o.value = k; voice.append(o); }
   voice.value = v.voice;
   voice.onchange = () => put("tts_natural_voice", voice.value);
-  row("Voix naturelle", voice);
+  // une voix par langue : on règle celle de la langue qu'elle parle en ce moment
+  row(LANG === "en" ? "Voix naturelle (anglais)" : "Voix naturelle (français)", voice);
+  const pitch = el("input"); pitch.type = "range"; pitch.min = -10; pitch.max = 40; pitch.step = 2; pitch.value = v.pitch ?? 0;
+  const pout = el("output", null, `${pitch.value} Hz`);
+  pitch.oninput = () => { pout.textContent = `${pitch.value} Hz`; };
+  pitch.onchange = () => put("tts_pitch", Number(pitch.value));
+  row("Hauteur de sa voix", pitch, pout);
+  card.append(el("p", "sub", "Plus haut = plus aiguë, plus jeune (voix naturelle en ligne seulement)."));
   const test = el("button", "btn", "Tester");
   test.onclick = async () => { const r = await fetch("/api/voix/test", { method: "POST" }); if (!r.ok) hint((await r.json()).error); };
   row("Écouter", test);

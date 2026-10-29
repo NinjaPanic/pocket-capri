@@ -1,4 +1,4 @@
-# Capri
+# Pocket Capri
 
 **[Français](README.fr.md)** · English
 

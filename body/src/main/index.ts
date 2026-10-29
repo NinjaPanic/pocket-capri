@@ -283,6 +283,7 @@ function toggleInteract() {
 function onSettingsChanged(s: ReturnType<SettingsStore['get']>) {
   teleporter.rearm();
   log.setLevel(s.privacy.logLevel);
+  applyLaunchOnLogin(s.startup.launchOnLogin);
   if (charWin && !charWin.isDestroyed()) {
     if (s.character.scale !== lastScale) {
       lastScale = s.character.scale;
@@ -290,7 +291,8 @@ function onSettingsChanged(s: ReturnType<SettingsStore['get']>) {
       charWin.setBounds(clampToDisplays({ x: Math.round(b.x + b.width / 2 - size.width / 2), y: b.y + b.height - size.height, ...size }, displaysNow()));
     }
     charWin.setOpacity(s.character.opacity);
-    charWin.setAlwaysOnTop(s.character.alwaysOnTop, 'floating');
+    if (s.character.alwaysOnTop) raiseCharacter(); // au bon niveau (au-dessus de la barre des tâches si elle y est)
+    else charWin.setAlwaysOnTop(false);
     applyMouseMode(false);
     charWin.webContents.send('settings:changed', s);
   }
@@ -500,12 +502,13 @@ let lang: 'en' | 'fr' = 'en';
 const EN: Record<string, string> = {
   'Ouvrir le hub': 'Open the hub', 'Micro on / off': 'Mic on / off', 'Faire taire / arrêter': 'Silence / stop', 'Pose': 'Pose',
   'Se téléporter': 'Teleport', 'Autre écran': 'Other screen', 'Vivre sa vie (se balader seule)': 'Live her life (wander on her own)',
-  'Ne pas déranger': 'Do not disturb', 'Laisser passer les clics': 'Let clicks through', 'Cacher Capri': 'Hide Capri',
+  'Ne pas déranger': 'Do not disturb', 'Laisser passer les clics': 'Let clicks through', 'Lancer avec Windows': 'Start with Windows','Cacher Capri': 'Hide Capri',
   'Montrer Capri': 'Show Capri', 'Remettre à sa place': 'Reset position', 'Mémoire…': 'Memory…', 'Visage…': 'Face…',
   'Réglages…': 'Settings…', 'Redémarrer': 'Restart', 'Quitter Capri': 'Quit Capri',
   'Assise': 'Sitting', 'Debout': 'Standing', 'Allongée': 'Lying back', 'Roulée en boule': 'Curled up', 'Pose de combat': 'Power stance',
   'En tailleur': 'Cross-legged', 'À genoux': 'Kneeling', 'Jambes dans le vide': 'Legs dangling', 'Allongée sur le ventre': 'Lying on her front',
-  'Genoux serrés': 'Hugging her knees', 'Flotter sur le dos': 'Floating on her back', 'Marcher': 'Walk', 'Voler ailleurs': 'Fly somewhere',
+  'Genoux serrés': 'Hugging her knees', 'Accroupie': 'Crouching', 'Un genou relevé': 'One knee up', 'Appuyée sur les mains': 'Leaning back',
+  'Allongée sur le côté': 'Lying on her side', 'Mains sur les hanches': 'Hands on hips', 'Jambes croisées': 'Legs crossed', 'Sur une jambe': 'On one leg', 'Flotter sur le dos': 'Floating on her back', 'Marcher': 'Walk', 'Voler ailleurs': 'Fly somewhere',
   "S'étirer": 'Stretch', 'Saluer': 'Wave', 'Danser': 'Dance', 'Tourner sur elle-même': 'Spin', 'Regarder autour': 'Look around', 'Dormir': 'Sleep',
   'Au hasard': 'Anywhere', 'Près de la souris': 'Near the mouse', 'Sur la fenêtre active': 'On the active window',
   'Coucou depuis un bord': 'Peek from an edge', 'Dans un coin': 'In a corner',
@@ -517,7 +520,9 @@ const tr = (fr: string) => (lang === 'fr' ? fr : EN[fr] ?? fr);
 const POSES: [string, string][] = [
   ['Assise', 'sit'], ['Debout', 'stand'], ['Allongée', 'recline'], ['Roulée en boule', 'curl_up'], ['Pose de combat', 'power_stance'],
   ['En tailleur', 'cross_legged'], ['À genoux', 'kneel'], ['Jambes dans le vide', 'dangle_legs'], ['Allongée sur le ventre', 'lie_belly'],
-  ['Genoux serrés', 'hug_knees'], ['Flotter sur le dos', 'float'], ['Marcher', 'walk'], ['Voler ailleurs', 'fly'], ['S\'étirer', 'stretch'],
+  ['Genoux serrés', 'hug_knees'], ['Accroupie', 'crouch'], ['Un genou relevé', 'knee_up'], ['Appuyée sur les mains', 'lean_back'],
+  ['Allongée sur le côté', 'lie_side'], ['Mains sur les hanches', 'hands_hips'], ['Jambes croisées', 'legs_crossed'], ['Sur une jambe', 'one_leg'],
+  ['Flotter sur le dos', 'float'], ['Marcher', 'walk'], ['Voler ailleurs', 'fly'], ['S\'étirer', 'stretch'],
   ['Saluer', 'wave'], ['Danser', 'dance'], ['Tourner sur elle-même', 'spin'], ['Regarder autour', 'look_around'], ['Dormir', 'sleep'],
 ];
 const PLACES: [string, TeleportTarget][] = [
@@ -539,6 +544,7 @@ function menuItems(short: boolean): MenuItemConstructorOptions[] {
     { label: tr('Vivre sa vie (se balader seule)'), type: 'checkbox', checked: s.behavior.idlePeek, click: (i) => settings.update({ behavior: { idlePeek: i.checked } }) },
     { label: tr('Ne pas déranger'), type: 'checkbox', checked: s.behavior.doNotDisturb, click: (i) => settings.update({ behavior: { doNotDisturb: i.checked } }) },
     { label: tr('Laisser passer les clics'), type: 'checkbox', checked: s.character.clickThrough, click: (i) => settings.update({ character: { clickThrough: i.checked } }) },
+    { label: tr('Lancer avec Windows'), type: 'checkbox', checked: s.startup.launchOnLogin, click: (i) => settings.update({ startup: { launchOnLogin: i.checked } }) },
   ];
   if (!short) items.push(
     { label: tr(visible ? 'Cacher Capri' : 'Montrer Capri'), accelerator: shortcutOf.cacher, click: toggleHidden },
@@ -619,7 +625,16 @@ const AvatarPatch = z.object({
   }).partial().optional(),
   behavior: z.object({ doNotDisturb: z.boolean(), idlePeek: z.boolean(), sleepAfterMinutes: z.number().min(1).max(240) }).partial().optional(),
   teleport: z.object({ auto: z.boolean(), minMinutes: z.number().min(1).max(240), maxMinutes: z.number().min(1).max(480), effects: z.boolean() }).partial().optional(),
+  startup: z.object({ launchOnLogin: z.boolean() }).partial().optional(),
 }).strict();
+
+/** Lancée avec Windows : la clé « Exécuter » de l'utilisateur pointe sur Capri.vbs (sans fenêtre, comme d'habitude). */
+function applyLaunchOnLogin(on: boolean) {
+  if (process.platform !== 'win32' || OFFSCREEN || process.env.CAPRI_TEST) return;
+  const vbs = path.join(app.getAppPath(), '..', 'Capri.vbs');
+  const login = { path: 'wscript.exe', args: [vbs], name: 'Capri' };
+  if (app.getLoginItemSettings(login).openAtLogin !== on) app.setLoginItemSettings({ ...login, openAtLogin: on });
+}
 
 function registerIpc() {
   handle('settings:get', none, () => settings.get());

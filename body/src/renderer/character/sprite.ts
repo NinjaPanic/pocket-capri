@@ -26,6 +26,11 @@ type VFrame = Record<VClass, number[][]>;
 const VECTOR = vectorData as unknown as Record<string, { frameW: number; frameH: number; frames: VFrame[] }>;
 /** Seated sprite: how far (sprite px) her feet hang below her bottom. */
 const PERCH_SEAT_DROP = 80;
+// the seated drawing next to the standing body: a little smaller, with the same bigger head (face + hair) as the
+// articulated body has (F.headScale), otherwise her body looks too big for her head when she sits
+const PERCH_SCALE = 0.88;
+/** Distance between her eyes on the standing drawing (sprite px): the reference size of her face. */
+const IDLE_EYES = FACES.idle.faces[0]!.dist;
 /** Lowest point of her feet on each drawing (sprite px from the top), measured on the sheets: it goes on the ledge. */
 const FEET: Record<SheetName, number> = { idle: 349, walk: 364, perch: 377, dance: 371, dangle: 370, sleep: 358, wake: 369, glitch: 367 };
 const V_ORDER: VClass[] = ['violet', 'hair', 'crimson', 'ink', 'green'];
@@ -186,7 +191,20 @@ export class SpriteBody {
     frame = LOOP[this.sheet] ? frame % count : Math.min(frame, count - 1);
 
     // sprite pixels → screen: feet (frame bottom) on the seat line, centred, mirrored when she faces left
-    const k = scale;
+    const perch = this.sheet === 'perch';
+    const k = scale * (perch ? PERCH_SCALE : 1);
+    const anchor = info.faces[frame] ?? this.lastFace;
+    // her face is always the same size on screen, whatever the drawing (standing, seated, walking, asleep…): the
+    // size it has on the articulated body. The drawn hair grows (or shrinks) with it so her head stays whole.
+    const grow = anchor ? (IDLE_EYES * scale * (F.headScale ?? 1)) / (anchor.dist * k) : 1;
+    // hair scaled up around her head (in sprite px, the current transform must map the sprite)
+    // (the hair no more than the articulated body's head: on the seated drawing it is already spread wide)
+    const hairGrow = Math.min(grow, F.headScale ?? 1);
+    const bigHair = (path: Path2D) => {
+      if (Math.abs(hairGrow - 1) < 0.01 || !anchor) { paintHair(path); return; }
+      ctx.save(); ctx.translate(anchor.x, anchor.y); ctx.scale(hairGrow, hairGrow); ctx.translate(-anchor.x, -anchor.y);
+      paintHair(path); ctx.restore();
+    };
     const flip = inp.facing < 0 ? -1 : 1;
     const bob = p.bodyY * 0.6 + (inp.perched || inp.grounded ? 0 : Math.sin(this.t * 1.1) * 2);
     // on the seated drawing her bottom (not her feet) rests on the ledge: her legs hang over its edge
@@ -216,7 +234,7 @@ export class SpriteBody {
     if (vec) {
       const colour: Record<VClass, string> = { violet: C.violet, hair: F.hairColor, crimson: F.hairColor, ink: C.ink, green: F.maskColor };
       for (const cls of V_ORDER) {
-        if (cls === 'hair') { paintHair(vec.get(cls)!); continue; }
+        if (cls === 'hair') { bigHair(vec.get(cls)!); continue; }
         ctx.fillStyle = colour[cls];
         ctx.fill(vec.get(cls)!, 'evenodd');
       }
@@ -227,11 +245,10 @@ export class SpriteBody {
     ctx.restore();
 
     // her live face over the sprite's head, held at the last known spot on frames without one
-    const anchor = info.faces[frame] ?? this.lastFace;
     if (!anchor) return true;
     this.lastFace = anchor;
     const [hx, hy] = base.apply([anchor.x, anchor.y]);
-    const s = (anchor.dist * k * F.faceScale) / (2 * F.eyeSpacing); // screen px per face unit
+    const s = (anchor.dist * k * F.faceScale * grow) / (2 * F.eyeSpacing); // screen px per face unit
     const angle = ((anchor.angle + F.faceAngle) * Math.PI) / 180 * flip + p.headRoll * 0.4;
     const head = new Mat().translate(hx + F.faceX * s * flip, hy + F.faceY * s).rotate(angle).scale(s * flip, s).translate(0, -F.eyeY);
     const fp = { ...p, headYaw: 0, turn: 0 };
@@ -248,8 +265,8 @@ export class SpriteBody {
       ctx.save();
       ctx.beginPath(); ctx.arc(hx, hy, s * (F.bandWidth + 14), 0, Math.PI * 2); ctx.clip();
       ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
-      ctx.beginPath(); ctx.rect(0, 0, anchor.x - anchor.dist * 0.15, info.frameH); ctx.clip();
-      paintHair(vec.get('hair')!);
+      ctx.beginPath(); ctx.rect(0, 0, anchor.x - anchor.dist * 0.15 * grow, info.frameH); ctx.clip();
+      bigHair(vec.get('hair')!);
       ctx.restore();
       return true;
     }
@@ -257,7 +274,7 @@ export class SpriteBody {
       ctx.save();
       clipOutFace(ctx, head, F); // …except over the face itself: only above the band
       ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
-      paintHair(vec.get('hair')!);
+      bigHair(vec.get('hair')!);
       ctx.restore();
     }
     drawFace(ctx, head, fp, s, undefined, false, 'only'); // the mouth stays in front of the hair

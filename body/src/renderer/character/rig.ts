@@ -85,6 +85,18 @@ export class Rig {
     }
   }
 
+  /** Lowest point of her body (sprite px) in this pose: feet, knees, bottom, hands or head, whichever touches down. */
+  lowest(pose: Pose, headScale = 1): number {
+    this.solve(pose, {}, headScale);
+    let low = -Infinity;
+    for (const b of RIG.bones) {
+      if (b.name === 'hair') continue;
+      const m = this.world.get(b.name)!;
+      for (const pt of [b.pivot, b.end]) low = Math.max(low, m.apply(pt)[1]);
+    }
+    return low;
+  }
+
   /** Repaint only the hair (to fall in front of the face). */
   drawHair(ctx: CanvasRenderingContext2D, paintHair: (p: Path2D) => void) {
     const b = RIG.bones.find((x) => x.name === 'hair')!;
@@ -147,8 +159,14 @@ export const POSE_KEY = (bone: string) => `p_${bone}` as const;
 export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, flip: number, p: Params, t: number, F: FaceConfig) {
   const basePose: Pose = {};
   for (const name of BONE_NAMES) basePose[name] = (F as unknown as Record<string, number>)[POSE_KEY(name)] ?? 0;
-  const { pose, stretch, drop } = poseFromParams(p, t, basePose);
-  // sitting: the whole body sinks so her hips rest on the ledge (legs hang below it)
+  const { pose, stretch } = poseFromParams(p, t, basePose);
+  // whatever the position, her lowest point rests where her feet stand: she sits, kneels or lies on the
+  // ledge instead of hovering over it or sinking into it
+  // (sitting on the edge, hipDrop ≥ 140: her bottom on the ledge and the legs hanging over it, like the drawn perch)
+  const low = rig.lowest(pose, F.headScale ?? 1);
+  const onEdge = Math.max(0, Math.min(1, (p.hipDrop - 110) / 40)); // fondu : pas de saut entre deux postures
+  const seat = low + (rig.place('thighL', HIP[0], HIP[1]).y + SEAT_DEPTH - low) * onEdge;
+  const drop = restLow(rig, basePose, F.headScale ?? 1) - seat;
   const base = base0.translate(0, drop);
   const colour: Record<string, string> = { violet: C.violet, crimson: F.hairColor, ink: C.ink, green: F.maskColor };
   ctx.save();
@@ -207,22 +225,33 @@ export function poseFromParams(p: Params, t: number, base: Pose): { pose: Pose; 
   add('upperArmR', -p.armRRaise * 140 - p.armSpread * 70 + Math.sin(t * 0.8 + 1) * 1.5);
   add('forearmR', -p.armRRaise * 25 + p.armRWave * 32 + p.armSpread * 10);
   add('handR', p.armRWave * 12);
-  // legs. The postures were written for a side-on body: a small thigh angle swings the leg out to
-  // the side, a big one (sitting, knees up) brings it toward the viewer, which a front view shows
-  // as a shortened thigh with the shin hanging below it
-  const stretch: Pose = {};
-  const leg = (side: 'L' | 'R', thigh: number, knee: number, fore: number) => {
+  // legs, seen from the front and always at full length (never squashed): the hip swings the knee out
+  // to the side, the knee folds the shin back in. Sitting cross-legged = knees out, shins crossed;
+  // crouching = knees wide, shins back down; kneeling = shins folded out to the sides
+  const leg = (side: 'L' | 'R', thigh: number, knee: number) => {
     const sign = side === 'L' ? 1 : -1;
-    const fwd = clamp01((Math.abs(thigh) - 25) / 80);
-    add(`thigh${side}`, sign * Math.max(-25, Math.min(25, thigh)) * 0.6 * (1 - fwd * 0.6));
-    add(`shin${side}`, -sign * knee * 0.35 * (1 - fwd));
-    stretch[`thigh${side}`] = (0.45 + 0.55 * fore) * (1 - 0.55 * fwd);
-    if (knee > 90) stretch[`shin${side}`] = 1 - 0.45 * fwd; // knees drawn up: the shins fold back too
+    add(`thigh${side}`, sign * thigh * LEG_SWING);
+    add(`shin${side}`, -sign * knee * KNEE_FOLD);
   };
   add('footL', FOOT_REST.L);
   add('footR', FOOT_REST.R);
-  leg('L', p.thighL, p.kneeL, p.foreL);
-  leg('R', p.thighR, p.kneeR, p.foreR);
-  return { pose, stretch, drop: p.hipDrop * 0.7 };
+  leg('L', p.thighL, p.kneeL);
+  leg('R', p.thighR, p.kneeR);
+  return { pose, stretch: {}, drop: 0 };
 }
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const LEG_SWING = 0.62, KNEE_FOLD = 0.95;
+/** Her hip joint on the drawing, and how far below it her bottom reaches. */
+const HIP: [number, number] = [124, 202], SEAT_DEPTH = 12;
+
+/** Where her feet are when she simply stands (the line she sits, kneels or lies on). */
+let restCache = { key: '', low: 0 };
+function restLow(rig: Rig, basePose: Pose, headScale: number): number {
+  const key = JSON.stringify(basePose) + headScale;
+  if (restCache.key !== key) {
+    const stand: Pose = { ...basePose };
+    stand.footL = (stand.footL ?? 0) + FOOT_REST.L;
+    stand.footR = (stand.footR ?? 0) + FOOT_REST.R;
+    restCache = { key, low: rig.lowest(stand, headScale) };
+  }
+  return restCache.low;
+}

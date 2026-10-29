@@ -214,8 +214,16 @@ NATURAL_VOICES = {
     # elles parlent aussi anglais (voix « multilingues ») : on peut garder la même en changeant de langue
     "fr-FR-VivienneMultilingualNeural": "Vivienne (France, très expressive) · FR/EN",
     "en-US-AvaMultilingualNeural": "Ava (États-Unis, très naturelle) · EN/FR",
-    "en-US-EmmaMultilingualNeural": "Emma (États-Unis, douce) · EN/FR",
+    "en-US-EmmaMultilingualNeural": "Emma (États-Unis, joyeuse) · EN/FR",
+    "en-US-JennyNeural": "Jenny (États-Unis, douce) · EN",
+    "en-US-AriaNeural": "Aria (États-Unis, assurée) · EN",
+    "en-US-MichelleNeural": "Michelle (États-Unis, claire) · EN",
+    "en-GB-LibbyNeural": "Libby (Royaume-Uni, jeune) · EN",
     "en-GB-SoniaNeural": "Sonia (Royaume-Uni) · EN",
+    "en-AU-NatashaNeural": "Natasha (Australie) · EN",
+    "en-CA-ClaraNeural": "Clara (Canada) · EN",
+    "en-IE-EmilyNeural": "Emily (Irlande) · EN",
+    "en-NZ-MollyNeural": "Molly (Nouvelle-Zélande) · EN",
     "fr-FR-DeniseNeural": "Denise (France, rapide)",
     "fr-CA-SylvieNeural": "Sylvie (Québec)",
     "fr-BE-CharlineNeural": "Charline (Belgique)",
@@ -291,14 +299,22 @@ async def local_voice_ready() -> bool:
         return False
 
 
+def chosen_voice(cfg: dict) -> str:
+    """Une voix par langue, choisie dans le hub : par défaut Vivienne en français, Ava (accent américain) en anglais."""
+    if cfg.get("langue", "fr") == "en":
+        return cfg.get("tts_natural_voice_en") or "en-US-AvaMultilingualNeural"
+    return cfg.get("tts_natural_voice") or "fr-FR-VivienneMultilingualNeural"
+
+
 async def natural_voice(text: str, mood: str, cfg: dict) -> tuple[bytes, int]:
     import edge_tts
     import miniaudio
-    voice = cfg.get("tts_natural_voice", "fr-FR-VivienneMultilingualNeural")
-    if cfg.get("langue", "fr") == "en" and "Multilingual" not in voice and not voice.startswith("en-"):
-        voice = "en-US-AvaMultilingualNeural"  # une voix seulement française ne sait pas parler anglais
+    voice = chosen_voice(cfg)
     base = float(cfg.get("tts_speed", 1.05))
     rate, pitch = MOOD_PROSODY.get(mood, ("+0%", "+0Hz"))
+    # sa hauteur de voix (réglée dans le hub) s'ajoute à celle de son humeur : plus aiguë = plus jeune
+    # (au-delà d'environ +50 Hz, le service ne renvoie plus rien : la phrase serait sautée en silence)
+    pitch = f"{min(50, int(pitch.rstrip('Hz')) + int(cfg.get('tts_pitch', 0))):+d}Hz"
     rate = f"{int(round((base - 1) * 100 + int(rate.rstrip('%')))):+d}%"
     mp3 = bytearray()
     volume = MOOD_VOLUME.get(mood, "+0%")
@@ -328,6 +344,7 @@ class Voice:
         self.natural_down_until = 0.0
         self.local_slot = asyncio.Lock()
         self.thinking = 0  # nombre de réponses que le modèle est en train d'écrire
+        self.short_cache: dict[tuple, tuple[bytes, int]] = {}
         self.local_ok, self.local_checked = False, 0.0
         if cfg.get("tts_engine") == "local":
             start_local_voice()
@@ -343,6 +360,18 @@ class Voice:
         plutôt que de la dire avec une autre voix (deux voix dans la même réponse, c'est pire)."""
         if not text.strip():
             return None
+        # ses petites phrases (« J'ouvre ça. ») reviennent souvent : gardées en mémoire, dites sans attendre
+        key = (self.cfg.get("tts_engine", "edge"), chosen_voice(self.cfg), self.cfg.get("tts_pitch", 0), mood, text)
+        if len(text) <= 40 and (hit := self.short_cache.get(key)):
+            return hit
+        result = await self._synthesize(text, mood)
+        if result and len(text) <= 40:
+            if len(self.short_cache) > 80:
+                self.short_cache.pop(next(iter(self.short_cache)))
+            self.short_cache[key] = result
+        return result
+
+    async def _synthesize(self, text: str, mood: str) -> tuple[bytes, int] | None:
         if self.cfg.get("tts_engine", "edge") == "local":
             # tant que la voix locale se charge (ou si elle a planté), la voix de secours parle à sa place
             if time.time() > self.local_checked + 5:
@@ -372,6 +401,7 @@ class Voice:
                         log.info("Voix naturelle, essai %d raté (%s)", attempt + 1, e)
                         await asyncio.sleep(0.4)
             self.natural_failures += 1
+            log.warning("Voix naturelle : phrase sautée après 3 essais (%s)", text[:60])
             if self.natural_failures >= 2:  # le service est vraiment en panne : voix locale pour un moment
                 self.natural_down_until = time.time() + 120
                 log.warning("Voix naturelle indisponible, voix locale pendant 2 minutes")
