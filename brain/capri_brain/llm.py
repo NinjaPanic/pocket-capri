@@ -1,0 +1,256 @@
+"""Accès aux modèles de langage : Ollama (sur ce PC) ou un service en ligne au format OpenAI
+(OpenAI, Google Gemini, Anthropic Claude, xAI Grok, Groq, Mistral, OpenRouter, DeepSeek)."""
+
+import json
+import logging
+import os
+from dataclasses import dataclass
+from collections.abc import AsyncIterator
+
+import httpx
+
+# Services en ligne : nom affiché, adresse de leur API compatible OpenAI, variable d'environnement de la clé, modèle proposé.
+PROVIDERS: dict[str, dict] = {
+    "groq": {"label": "Groq", "url": "https://api.groq.com/openai/v1", "env": "GROQ_API_KEY",
+             "model": "meta-llama/llama-4-scout-17b-16e-instruct", "keys": "console.groq.com/keys (gratuit)"},
+    "google": {"label": "Google Gemini", "url": "https://generativelanguage.googleapis.com/v1beta/openai", "env": "GEMINI_API_KEY",
+               "model": "gemini-2.5-flash", "keys": "aistudio.google.com/apikey (gratuit avec limites)"},
+    "openai": {"label": "OpenAI", "url": "https://api.openai.com/v1", "env": "OPENAI_API_KEY",
+               "model": "gpt-4.1-mini", "keys": "platform.openai.com/api-keys (payant)"},
+    "anthropic": {"label": "Anthropic Claude", "url": "https://api.anthropic.com/v1", "env": "ANTHROPIC_API_KEY",
+                  "model": "claude-haiku-5-5", "keys": "console.anthropic.com (payant)"},
+    "xai": {"label": "xAI Grok", "url": "https://api.x.ai/v1", "env": "XAI_API_KEY",
+            "model": "grok-3-mini", "keys": "console.x.ai (payant)"},
+    "mistral": {"label": "Mistral", "url": "https://api.mistral.ai/v1", "env": "MISTRAL_API_KEY",
+                "model": "mistral-small-latest", "keys": "console.mistral.ai (gratuit avec limites)"},
+    "openrouter": {"label": "OpenRouter", "url": "https://openrouter.ai/api/v1", "env": "OPENROUTER_API_KEY",
+                   "model": "openrouter/auto", "keys": "openrouter.ai/keys (certains modèles gratuits)"},
+    "deepseek": {"label": "DeepSeek", "url": "https://api.deepseek.com/v1", "env": "DEEPSEEK_API_KEY",
+                 "model": "deepseek-chat", "keys": "platform.deepseek.com (payant, peu cher)"},
+}
+
+log = logging.getLogger("capri")
+
+
+class LLMError(Exception):
+    pass
+
+
+@dataclass
+class ToolCall:
+    """Le modèle demande d'exécuter une action."""
+    name: str
+    arguments: dict
+    id: str = ""
+
+
+class LLM:
+    def __init__(self, cfg: dict):
+        llm = cfg["llm"]
+        self.provider = llm["provider"]
+        self.temperature = llm.get("temperature", 0.8)
+        self.max_tokens = llm.get("max_tokens", 700)
+        self.ollama = llm["ollama"]
+        self.ollama_url = self.ollama["url"].rstrip("/")
+        self.cloud_cfg = llm
+        self.embed_model = cfg["memory"]["embed_model"]
+        self.http = httpx.AsyncClient(timeout=httpx.Timeout(180, connect=5))
+        # Les modèles "qui réfléchissent" (Qwen3…) sont bien plus rapides sans réflexion visible.
+        # Si le modèle ne gère pas cette option, on arrête de l'envoyer.
+        self._send_think = True
+
+    def reload(self, cfg: dict) -> None:
+        """Prend en compte un changement de fournisseur, de modèle ou de clé fait depuis le hub."""
+        llm = cfg["llm"]
+        self.provider = llm["provider"]
+        self.ollama = llm["ollama"]
+        self.ollama_url = self.ollama["url"].rstrip("/")
+        self.cloud_cfg = llm
+
+    def cloud(self, provider: str | None = None) -> tuple[str, str]:
+        """(clé, modèle) d'un service en ligne : réglés dans le hub, sinon config.toml / variable d'environnement."""
+        provider = provider or self.provider
+        info, conf = PROVIDERS[provider], self.cloud_cfg.get(provider, {})
+        return conf.get("api_key") or os.environ.get(info["env"], ""), conf.get("model") or info["model"]
+
+    @staticmethod
+    def _openai_messages(messages: list[dict]) -> list[dict]:
+        """Messages au format OpenAI/Groq : les captures d'écran deviennent des images jointes,
+        et les champs propres à Ollama sont retirés."""
+        out = []
+        for m in messages:
+            msg = {k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "tool_call_id")}
+            if m.get("images"):
+                msg["content"] = [{"type": "text", "text": m.get("content") or ""}] + [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img}"}} for img in m["images"]]
+            out.append(msg)
+        return out
+
+    @property
+    def label(self) -> str:
+        model = self.cloud()[1] if self.provider in PROVIDERS else self.ollama["model"]
+        return f"{self.provider} · {model}"
+
+    async def stream(
+        self, messages: list[dict], *, temperature: float | None = None, json_mode: bool = False,
+        tools: list[dict] | None = None,
+    ) -> AsyncIterator[str | ToolCall]:
+        """Texte de la réponse au fil de l'eau ; avec `tools`, peut aussi produire des ToolCall."""
+        temp = self.temperature if temperature is None else temperature
+        if self.provider in PROVIDERS:
+            gen = self._cloud_stream(messages, temp, json_mode, tools)
+        else:
+            gen = self._ollama_stream(messages, temp, json_mode, tools=tools)
+        async for piece in gen:
+            yield piece
+
+    async def complete(self, messages: list[dict], **kwargs) -> str:
+        return "".join([piece async for piece in self.stream(messages, **kwargs)])
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        try:
+            r = await self.http.post(
+                f"{self.ollama_url}/api/embed",
+                # sur le processeur : c'est rapide pour de si petits textes, et ça laisse la carte graphique au reste
+                json={"model": self.embed_model, "input": texts, "keep_alive": self.ollama["keep_alive"],
+                      "options": {"num_gpu": 0}},
+            )
+        except httpx.HTTPError as e:
+            raise LLMError(f"Ollama injoignable pour la mémoire ({e.__class__.__name__}).") from e
+        if r.status_code != 200:
+            raise LLMError(f"Embeddings : {r.text[:200]}")
+        return r.json()["embeddings"]
+
+    async def warmup(self, system_prompt: str) -> None:
+        """Charge le modèle et met la personnalité en cache pour que la 1re réponse soit rapide."""
+        if self.provider == "ollama":
+            async for _ in self._ollama_stream(
+                [{"role": "system", "content": system_prompt}, {"role": "user", "content": "."}],
+                0.0, False, max_tokens=1,
+            ):
+                pass
+        await self.embed(["search_query: test"])
+
+    async def _ollama_stream(
+        self, messages: list[dict], temperature: float, json_mode: bool, max_tokens: int | None = None,
+        tools: list[dict] | None = None,
+    ) -> AsyncIterator[str | ToolCall]:
+        body = {
+            "model": self.ollama["model"],
+            "messages": messages,
+            "stream": True,
+            "keep_alive": self.ollama["keep_alive"],
+            "options": {
+                "num_ctx": self.ollama["num_ctx"],
+                "temperature": temperature,
+                "num_predict": max_tokens or self.max_tokens,
+                # sans ça, qwen3-vl part parfois en boucle et répète la même phrase jusqu'à la limite
+                "repeat_penalty": 1.12, "repeat_last_n": 256, "top_p": 0.92,
+            },
+        }
+        if json_mode:
+            body["format"] = "json"
+        if tools:
+            body["tools"] = tools
+        for attempt in range(2):
+            if self._send_think:
+                body["think"] = False
+            else:
+                body.pop("think", None)
+            try:
+                async with self.http.stream("POST", f"{self.ollama_url}/api/chat", json=body) as r:
+                    if r.status_code != 200:
+                        detail = (await r.aread()).decode(errors="replace")
+                        if attempt == 0 and self._send_think and "think" in detail.lower():
+                            self._send_think = False
+                            continue
+                        if r.status_code == 404:
+                            raise LLMError(
+                                f"Le modèle « {self.ollama['model']} » n'est pas installé. "
+                                f"Lance : ollama pull {self.ollama['model']}"
+                            )
+                        raise LLMError(f"Ollama : {detail[:300]}")
+                    async for line in r.aiter_lines():
+                        if not line:
+                            continue
+                        data = json.loads(line)
+                        if "error" in data:
+                            raise LLMError(f"Ollama : {data['error']}")
+                        message = data.get("message", {})
+                        if piece := message.get("content", ""):
+                            yield piece
+                        for call in message.get("tool_calls") or []:
+                            fn = call.get("function", {})
+                            args = fn.get("arguments") or {}
+                            if isinstance(args, str):
+                                args = json.loads(args or "{}")
+                            yield ToolCall(fn.get("name", ""), args, call.get("id", ""))
+                        if data.get("done"):
+                            log.info(
+                                "Ollama : %s tokens lus en %.2fs, %s générés à %.0f tok/s",
+                                data.get("prompt_eval_count", 0),
+                                data.get("prompt_eval_duration", 0) / 1e9,
+                                data.get("eval_count", 0),
+                                data.get("eval_count", 0) / max(data.get("eval_duration", 1) / 1e9, 1e-6),
+                            )
+                            return
+                    return
+            except httpx.ConnectError as e:
+                raise LLMError("Ollama ne répond pas. Il est bien installé et lancé ?") from e
+            except httpx.HTTPError as e:
+                raise LLMError(f"Erreur réseau avec Ollama ({e.__class__.__name__}).") from e
+
+    async def _cloud_stream(
+        self, messages: list[dict], temperature: float, json_mode: bool, tools: list[dict] | None = None
+    ) -> AsyncIterator[str | ToolCall]:
+        info = PROVIDERS[self.provider]
+        name = info["label"]
+        key, model = self.cloud()
+        if not key:
+            raise LLMError(f"Pas de clé pour {name} : ajoute-la dans le hub (Réglages, Cerveau) ou repasse sur Ollama.")
+        body = {"model": model, "messages": self._openai_messages(messages), "stream": True, "temperature": temperature}
+        # les derniers modèles d'OpenAI veulent « max_completion_tokens »
+        body["max_completion_tokens" if self.provider == "openai" else "max_tokens"] = self.max_tokens
+        if json_mode and self.provider != "anthropic":
+            body["response_format"] = {"type": "json_object"}
+        if tools:
+            body["tools"] = tools
+        headers = {"Authorization": f"Bearer {key}"}
+        if self.provider == "openrouter":
+            headers["X-Title"] = "Capri"
+        for attempt in range(2):
+            calls: dict[int, dict] = {}  # les appels d'outils arrivent en morceaux
+            try:
+                async with self.http.stream("POST", f"{info['url']}/chat/completions", json=body, headers=headers) as r:
+                    if r.status_code != 200:
+                        detail = (await r.aread()).decode(errors="replace")
+                        # certains modèles refusent la température : on réessaie sans
+                        if attempt == 0 and r.status_code == 400 and "temperature" in detail.lower():
+                            body.pop("temperature", None)
+                            continue
+                        if r.status_code == 429:
+                            raise LLMError(f"Limite de {name} atteinte, réessaie dans un moment.")
+                        if r.status_code in (401, 403):
+                            raise LLMError(f"{name} refuse la clé (invalide ou sans crédit).")
+                        raise LLMError(f"{name} : {detail[:300]}")
+                    async for line in r.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        choices = json.loads(payload).get("choices") or [{}]
+                        delta = choices[0].get("delta") or {}
+                        if piece := delta.get("content"):
+                            yield piece
+                        for part in delta.get("tool_calls") or []:
+                            call = calls.setdefault(part.get("index", 0), {"id": "", "name": "", "args": ""})
+                            call["id"] = part.get("id") or call["id"]
+                            fn = part.get("function") or {}
+                            call["name"] += fn.get("name") or ""
+                            call["args"] += fn.get("arguments") or ""
+                for call in calls.values():
+                    yield ToolCall(call["name"], json.loads(call["args"] or "{}"), call["id"])
+                return
+            except httpx.HTTPError as e:
+                raise LLMError(f"{name} injoignable ({e.__class__.__name__}).") from e

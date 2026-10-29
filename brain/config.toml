@@ -1,0 +1,62 @@
+# Configuration du cerveau de Capri.
+# Relance start-capri.bat après une modification.
+
+[server]
+# 127.0.0.1 = accessible uniquement depuis ce PC.
+# Pour le téléphone plus tard (via Tailscale), on mettra "0.0.0.0".
+host = "127.0.0.1"
+port = 8765
+
+[llm]
+# "ollama" = 100 % local et gratuit.
+# Ou un service en ligne (clé API à mettre dans le hub, Réglages > Cerveau) :
+# "groq", "google", "openai", "anthropic", "xai", "mistral", "openrouter", "deepseek".
+provider = "ollama"
+temperature = 0.65
+max_tokens = 700
+
+[llm.ollama]
+url = "http://127.0.0.1:11434"
+# qwen3-vl voit les images (captures d'écran) en plus de parler.
+model = "qwen3-vl:8b-instruct"
+num_ctx = 8192
+# Garde le modèle chargé en mémoire GPU pendant ce temps d'inactivité.
+keep_alive = "30m"
+
+[llm.groq]
+# Clé gratuite sur https://console.groq.com/keys
+# Tu peux aussi la mettre dans la variable d'environnement GROQ_API_KEY.
+api_key = ""
+model = "llama-3.3-70b-versatile"
+
+[voice]
+enabled = true
+# true = elle ne réagit que si tu dis « Capri » (ou juste après qu'elle t'a répondu).
+wake_word = true
+# Secondes après sa réponse pendant lesquelles tu peux lui répondre sans dire son nom.
+follow_up_seconds = 8
+# Silence (en secondes) qui marque la fin de ta phrase. Plus court = plus réactif.
+end_silence = 0.6
+stt_model = "large-v3-turbo"
+# "edge" = voix naturelle de Microsoft (gratuite, sans clé, en ligne) ; "kokoro" = voix locale (hors ligne, plus robotique).
+tts_engine = "edge"
+tts_natural_voice = "fr-FR-VivienneMultilingualNeural"
+tts_voice = "ff_siwis"
+tts_speed = 1.05
+
+[memory]
+# Modèle d'embeddings (toujours local, via Ollama), utilisé pour retrouver les souvenirs.
+embed_model = "nomic-embed-text"
+# Nombre de souvenirs rappelés à chaque message.
+recall = 6
+# Nombre d'échanges récents gardés dans la conversation.
+history_turns = 12
+
+[vie]
+# Elle remarque ton retour quand tu as été absent au moins ce temps (minutes).
+accueil = true
+absence_minutes = 20
+# Elle te lance une petite phrase d'elle-même après ce temps sans vous parler (minutes, 0 = jamais),
+# seulement entre ces heures, jamais pendant un jeu en plein écran.
+spontane_minutes = 8
+spontane_heures = [9, 23]

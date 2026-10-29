@@ -1,0 +1,38 @@
+# --- Données personnelles : jamais en ligne -------------------------------
+# conversations, souvenirs, réglages (dont les clés d'API), vie intérieure, journaux
+brain/data/*
+!brain/data/face.json
+*.log
+# ta voix
+brain/voix_locale/ma_voix.wav
+essais-voix/
+capri.original.txt
+
+# --- Ce qui se télécharge ou se reconstruit -------------------------------
+brain/.venv/
+brain/voix_locale/.venv/
+brain/models/
+__pycache__/
+*.pyc
+body/node_modules/
+body/dist/
+body/out/
+body/release/
+
+# --- Hors projet ------------------------------------------------------------
+# ancien code de capri-companion, rendus de test, bande-annonce, captures de la série
+body/_ancien/
+body/face-lab/
+body/trailer/
+body/reference/cutouts/
+body/assets/eye-ref.png
+body/assets/eye-closed-ref.png
+body/assets/face-ref.png
+body/assets/eye-color.png
+body/assets/eye-keep.png
+body/docs/
+
+# --- Système ------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini

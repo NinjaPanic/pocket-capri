@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capri</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body>
+<nav>
+  <div class="brand"><span class="dot" id="dot"></span><b>CAPRI</b></div>
+  <a href="#discussion" data-tab="discussion"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/></svg>Discussion</a>
+  <a href="#memoire" data-tab="memoire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 2 4v4h8v-4c1-1 2-2 2-4a6 6 0 0 0-6-6zM9 21h6"/></svg>Mémoire</a>
+  <a href="#actions" data-tab="actions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Actions</a>
+  <a href="#visage" data-tab="visage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 11h18M8 15c1 1.5 2.5 2 4 2s3-.5 4-2"/></svg>Visage</a>
+  <a href="#reglages" data-tab="reglages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Réglages</a>
+  <a href="#etat" data-tab="etat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>État</a>
+  <div class="spacer"></div>
+  <div class="moodchip">humeur · <span id="mood">…</span></div>
+</nav>
+
+<main>
+  <section id="discussion">
+    <header class="top"><h1>Discussion</h1><div class="grow"></div>
+      <button class="btn" id="micBtn" title="Parler depuis cette page (utile sur le téléphone)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Micro</button>
+      <button class="btn" id="spkBtn" title="Entendre sa voix dans cette page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9h4l5-4v14l-5-4H4zM17 8a5 5 0 0 1 0 8"/></svg>Voix</button>
+      <button class="btn danger" id="stopBtn" title="La faire taire et arrêter ce qu'elle fait (Échap)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop</button>
+    </header>
+    <div class="scroll" id="scroll"><div id="log"></div></div>
+    <div id="hint"></div>
+    <form class="say" id="form">
+      <textarea id="input" rows="1" placeholder="Parle à Capri…  (Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne)"></textarea>
+      <button class="send" id="send">ENVOYER</button>
+    </form>
+  </section>
+
+  <section id="memoire">
+    <header class="top"><h1>Mémoire</h1><div class="grow"></div><span class="count" id="memCount"></span></header>
+    <div class="scroll">
+      <div class="toolbar"><input class="search" id="memSearch" placeholder="Chercher un souvenir…"></div>
+      <ul class="list" id="memList"></ul>
+    </div>
+  </section>
+
+  <section id="actions">
+    <header class="top"><h1>Journal des actions</h1><div class="grow"></div><span class="count" id="actCount"></span></header>
+    <div class="scroll">
+      <div class="toolbar"><input class="search" id="actSearch" placeholder="Filtrer…"><button class="btn danger" id="actStop">Arrêter ce qu'elle fait</button></div>
+      <ul class="list" id="actList"></ul>
+    </div>
+  </section>
+
+  <section id="visage">
+    <header class="top"><h1>Visage</h1><div class="grow"></div><span class="count">les changements s'appliquent en direct sur l'avatar</span></header>
+    <iframe class="face" id="faceFrame" title="Éditeur de visage"></iframe>
+  </section>
+
+  <section id="reglages">
+    <header class="top"><h1>Réglages</h1><div class="grow"></div><span class="saved" id="saved">✓ enregistré</span></header>
+    <div class="scroll"><div class="cards" id="cards"></div></div>
+  </section>
+
+  <section id="etat">
+    <header class="top"><h1>État</h1><div class="grow"></div><button class="btn" id="stateRefresh">Actualiser</button></header>
+    <div class="scroll">
+      <div class="stats" id="stats"></div>
+      <div class="cards" id="innerCards"></div>
+    </div>
+  </section>
+</main>
+<script src="/hub-i18n.js"></script>
+<script src="/hub.js"></script>
+</body>
+</html>

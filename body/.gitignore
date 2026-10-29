@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+docs/previews/
+*.log
+.env.local
+.env*.local
+trailer/out/
+trailer/.remotion/
+*.tmp
+
+# raw desktop recordings (scripts/record-demo.mjs): personal desktop, regenerate locally
+trailer/public/demo/
+trailer/public/clips/
+trailer/public/audio/
