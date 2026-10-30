@@ -16,6 +16,8 @@ import { getFaceConfig, onFaceConfig, setFaceConfig } from './face';
 import { modelPoseFor } from './poseMap';
 import { BrainLink, MOOD_FACE, type BrainEvent } from './brain';
 import { Roamer, type Rect } from './roam';
+import { Afterimages, Momentum } from './motion';
+import { PALETTE } from './palette';
 
 /** Model-requested emotes → validated reactions/clips (the model never touches the renderer directly). */
 const EMOTE_MAP: Record<string, { react?: Reaction; clip?: string; posture?: PostureName }> = {
@@ -76,21 +78,25 @@ const SEATED = new Set<PostureName>(['sit_edge', 'air_sit', 'cross_legged', 'kne
 const onLedge = () => surface === 'taskbar' || surface === 'window';
 // the seated drawing only shows these two; every other position is bent on the skeleton
 const DRAWN_SEAT = new Set<PostureName>(['sit_edge', 'dangle_legs']);
-const perchDrawing = () => getFaceConfig().skeleton >= 0.5
+// (while she sits down it switches only once her bottom touches the ledge, and back as soon as she gets up)
+const perchDrawing = () => behavior.seatedDrawingOk(anim.value.hipDrop) && (getFaceConfig().skeleton >= 0.5
   ? onLedge() && DRAWN_SEAT.has(behavior.posture)
-  : surface === 'window' || (onLedge() && SEATED.has(behavior.posture));
+  : surface === 'window' || (onLedge() && SEATED.has(behavior.posture)));
 // ---------------------------------------------------------------- her own life on the desktop
 let ledge: { left: number; right: number } | null = null;
 let me: Rect | null = null; // her window (DIP), kept up to date as she moves herself
 let activeWin: Rect | null = null, workArea: Rect | null = null;
 let perchSpots: { left: number; right: number; y: number }[] = [];
 const roamer = new Roamer({
-  posture: (name) => behavior.setPosture(name),
+  posture: (name, how) => behavior.setPosture(name, how),
   clip: (name) => { if (clipByName(name)) behavior.playClip(name, 'action'); },
   teleport: () => void api.invoke('teleport:now', 'auto').catch(() => undefined),
   land: () => void api.invoke('char:land').catch(() => undefined),
 });
 const blinker = new Blinker();
+// her window's own motion (roaming, thrown, dragged): hair trails, impacts squash her, afterimages when fast
+const momentum = new Momentum();
+const ghosts = new Afterimages(() => document.createElement('canvas'), [PALETTE.mask, PALETTE.violet]);
 const mic = new MicRecorder();
 const speaker = new Speaker(() => settings, (id, state) => void api.invoke('char:speechState', { utteranceId: id, state }), (t) => api.invoke('tts:fetch', t));
 
@@ -225,7 +231,9 @@ function tick(dt: number) {
   // departure: the many-eyes bloom flashes as she starts to fragment (N 2:14)
   if (fx.phase === 'out') target.manyEyes = Math.max(target.manyEyes, Math.sin(Math.min(1, fx.u / 0.6) * Math.PI));
   if (forced) Object.assign(target, forced);
-  anim.step(target, dt, intensity);
+  const impact = momentum.update(dt, fx.active || fx.hidden ? null : { x: window.screenX, y: window.screenY });
+  momentum.apply(target, anim, impact);
+  anim.step(target, dt, intensity, behavior.boost);
   // the stride goes on top of the smoothed pose (smoothing would flatten quick steps into a shuffle)
   const p = anim.value;
   p.mouthOpen = Math.max(0, speaking ? level : p.mouthOpen); // lip-sync wins over gesture clips
@@ -256,6 +264,7 @@ function tick(dt: number) {
     model.post(ctx, off, Math.max(0.3, model.burst * 0.9));
   }
   if (teleporting) fx.render(ctx, off, dt, dpr);
+  else if (momentum.pos) ghosts.update(ctx, canvas, dt, momentum.pos, momentum.speed, dpr);
 }
 
 // head pats: the cursor rubbing back and forth over her head (Desktop Mate / Shimeji style)
@@ -368,7 +377,7 @@ api.on('cue', (raw) => {
     case 'clip': emote(c.name); break;
     case 'connection': break;
     case 'surface': surface = c.surface; break;
-    case 'dash': dashing = c.dir; break;
+    case 'dash': if (!c.dir && dashing) behavior.landed(onLedge()); dashing = c.dir; break; // end of a throw / glide: she lands
     case 'ledge': ledge = c.ledge; me = c.me; break;
     case 'world': activeWin = c.activeWindow; workArea = c.work; perchSpots = c.perches ?? []; break;
     case 'brain':
@@ -411,6 +420,8 @@ function shareSettings() {
     setPointer(x: number | null, y = 0) { pointer = x === null ? null : { x, y }; lastPointerAt = performance.now(); },
     setSurface(s: Surface) { surface = s; },
     setDashing(d: number) { dashing = d; },
+    // window motion for previews: a synthetic velocity (DIP/s) replaces the measured one; null = real
+    motion: { feed(vx: number | null, vy = 0) { momentum.fed = vx === null ? null : { vx, vy }; }, get speed() { return momentum.speed; }, get ghosts() { return ghosts.count; } },
     setIdle(sec: number, q = false) { idleSec = sec; quiet = q; },
     lips(on: boolean) { if (on) speaker.lips.start(); else speaker.lips.stop(); },
     teleportFx(ph: 'out' | 'in', id = 1) { fx.start(ph, id, { x: W / 2, y: H * 0.38, w: W * 0.8, h: H * 0.7 }); },

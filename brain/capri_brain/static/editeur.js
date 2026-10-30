@@ -749,7 +749,9 @@
     zoom: 1,
     hairUp: 0,
     turn: 0,
-    back: 0
+    back: 0,
+    squashY: 0,
+    squashX: 0
   };
 
   // assets/desktop-sprites/rig.json
@@ -1680,6 +1682,22 @@
     }
   };
 
+  // src/renderer/character/motion.ts
+  function hash(i, seed) {
+    let h = Math.imul(i ^ Math.imul(seed, 2654435761), 2246822507);
+    h ^= h >>> 13;
+    h = Math.imul(h, 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 2147483647 - 1;
+  }
+  function noise1(x, seed = 0) {
+    const i = Math.floor(x), f = x - i;
+    const u = f * f * f * (f * (f * 6 - 15) + 10);
+    const a = hash(i, seed) * f, b = hash(i + 1, seed) * (f - 1);
+    return (a + (b - a) * u) * 2;
+  }
+  var drift = (x, seed = 0) => 0.7 * noise1(x, seed) + 0.3 * noise1(x * 2.31 + 17.7, seed + 101);
+
   // src/renderer/character/rig.ts
   var RIG = rig_default;
   var BONE_NAMES = RIG.bones.map((b) => b.name);
@@ -1762,6 +1780,13 @@
       }
       return low;
     }
+    /** Every bone's joint (pivot) and tip as last drawn, in sprite px (inspector overlay). */
+    joints() {
+      return RIG.bones.filter((b) => this.world.has(b.name)).map((b) => {
+        const m = this.world.get(b.name);
+        return { name: b.name, parent: b.parent, pivot: m.apply(b.pivot), end: m.apply(b.end) };
+      });
+    }
     /** Repaint only the hair (to fall in front of the face). */
     drawHair(ctx2, paintHair) {
       const b = RIG.bones.find((x) => x.name === "hair");
@@ -1822,7 +1847,7 @@
   }
   var HEAD_ANCHOR = faces_default.idle.faces[0];
   var POSE_KEY = (bone) => `p_${bone}`;
-  function drawRigged(ctx2, rig2, base0, flip, p, t, F) {
+  function drawRigged(ctx2, rig2, base0, flip, p, t, F, debug) {
     const basePose = {};
     for (const name of BONE_NAMES) basePose[name] = F[POSE_KEY(name)] ?? 0;
     const { pose, stretch } = poseFromParams(p, t, basePose);
@@ -1831,6 +1856,7 @@
     const seat = low + (rig2.place("thighL", HIP[0], HIP[1]).y + SEAT_DEPTH - low) * onEdge;
     const drop = restLow(rig2, basePose, F.headScale ?? 1) - seat;
     const base = base0.translate(0, drop);
+    if (debug) debug.base = base;
     const colour = { violet: PALETTE.violet, crimson: F.hairColor, ink: PALETTE.ink, green: F.maskColor };
     ctx2.save();
     ctx2.transform(base.a, base.b, base.c, base.d, base.e, base.f);
@@ -1865,13 +1891,13 @@
     const add = (k, v) => {
       pose[k] = (pose[k] ?? 0) + v;
     };
-    add("torso", deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + Math.sin(t * 1.6) * 0.6 * p.breathe);
+    add("torso", deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + (p.breathe - 0.5) * 1.2);
     add("head", deg(p.headRoll) * 0.9 + p.headPitch * 8);
-    add("hair", Math.sin(t * 1.15) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
-    add("upperArmL", ARM_L_REST + p.armLRaise * 125 + p.armSpread * 60 + Math.sin(t * 0.9) * 1.5);
+    add("hair", drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
+    add("upperArmL", ARM_L_REST + p.armLRaise * 125 + p.armSpread * 60 + drift(t * 0.14, 32) * 1.5);
     add("forearmL", p.armLRaise * 35 - p.armSpread * 10);
     add("handL", p.armLRaise * 10);
-    add("upperArmR", -p.armRRaise * 140 - p.armSpread * 70 + Math.sin(t * 0.8 + 1) * 1.5);
+    add("upperArmR", -p.armRRaise * 140 - p.armSpread * 70 + drift(t * 0.13, 33) * 1.5);
     add("forearmR", -p.armRRaise * 25 + p.armRWave * 32 + p.armSpread * 10);
     add("handR", p.armRWave * 12);
     const leg = (side, thigh, knee) => {

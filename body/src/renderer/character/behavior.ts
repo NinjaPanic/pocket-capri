@@ -2,6 +2,9 @@ import { NEUTRAL, type Params } from './params';
 import type { AssistantPhase } from '../../shared/ipc';
 import { applyClip, CLIPS, ClipInstance, clipByName, REACTION_CLIPS } from './clips';
 import { POSTURES, posturesFor, type PostureName, type Surface } from './postures';
+import { Breath, MicroPoses, drift } from './motion';
+import { prng } from './geometry';
+import { PostureTransition, transitionFor } from './transitions';
 
 export type BehaviorState =
   | 'idle' | 'lookAround' | 'listening' | 'thinking' | 'speaking' | 'reacting'
@@ -54,10 +57,36 @@ export class Behavior {
   readonly postureHistory: PostureName[] = [];
   /** Facial bias for her current mood (set by the brain link). */
   mood: Partial<Params> = {};
-  constructor(private rand: () => number = Math.random) {}
+  /** The staged move between two postures (sit down, stand up, land) while it plays. */
+  transition: PostureTransition | null = null;
+  private breath: Breath;
+  private micro: MicroPoses;
+  private seed: number;
+  private held = false;
+  private lastOut: Params | null = null;
+  /**
+   * `legacy`: the old motion (pure sinusoids, postures morphing into each other) — for side-by-side comparisons.
+   * `ambientSeed`: the small life of the body (breathing, weight shifts) has its own random source, so it never
+   * changes the decisions drawn from `rand`.
+   */
+  constructor(private rand: () => number = Math.random, readonly legacy = false, ambientSeed = Math.floor(Math.random() * 1e6)) {
+    const r = prng(ambientSeed);
+    this.breath = new Breath(r);
+    this.micro = new MicroPoses(r);
+    this.seed = ambientSeed;
+  }
 
-  /** Switch posture now (also used by tests / emotes). */
-  setPosture(name: PostureName) {
+  /**
+   * Switch posture now (also used by tests / emotes). `how`: she gets there by landing from a flight
+   * ('land' on a ledge, 'stop' in mid-air) — otherwise sitting down / standing up is played in steps.
+   */
+  setPosture(name: PostureName, how?: 'land' | 'stop') {
+    if (name === this.posture && !how) return;
+    if (!this.legacy && !this.held) {
+      const from = this.lastOut ? { ...POSTURES[this.posture].pose, ...pickBody(this.lastOut) } : POSTURES[this.posture].pose;
+      const kind = transitionFor(from, POSTURES[name].pose, how);
+      this.transition = kind ? new PostureTransition(kind, from, POSTURES[name].pose) : null;
+    } else this.transition = null;
     if (name === this.posture) return;
     this.posture = name;
     this.postureT = 0;
@@ -133,16 +162,33 @@ export class Behavior {
   }
   wake() { if (this.state === 'sleeping') this.enter('returning'); }
 
+  /** A flight (or a throw) just ended: she lands on the ledge under her, or brakes in mid-air. */
+  landed(onGround: boolean) { this.setPosture(this.posture, onGround ? 'land' : 'stop'); }
+
+  /** Stiffness boost for the Animator while a staged transition plays. */
+  get boost() { return this.transition?.boost ?? null; }
+  /**
+   * The hand-drawn seated sprite may show: no transition, or her bottom has touched the ledge and the
+   * (smoothed) hips are down far enough that the skeleton already looks seated like the drawing.
+   */
+  seatedDrawingOk(hipDrop: number) { return !this.transition || (this.transition.t >= this.transition.contact && hipDrop >= 145); }
+
   private lastDt = 1 / 60;
   update(dt: number, inp: BehaviorInputs): Params {
     this.lastDt = dt;
     this.intensity = inp.intensity;
+    this.held = !!inp.held;
     this.t += dt;
     this.clock += dt;
-    this.transition(inp);
+    this.changeState(inp);
     this.updatePosture(dt, inp);
-    let p = this.pose(inp);
+    let p = this.pose(inp, dt);
     p = this.applyPosture(p, inp);
+    if (this.transition) {
+      p = this.transition.apply(p, dt);
+      if (this.transition.done) this.transition = null;
+    }
+    this.lastOut = p;
     if (this.clip) {
       p = applyClip(p, this.clip.sample(dt), this.clip.weight);
       if (this.clip.done) this.clip = null;
@@ -150,7 +196,7 @@ export class Behavior {
     return p;
   }
 
-  private transition(inp: BehaviorInputs) {
+  private changeState(inp: BehaviorInputs) {
     const s = this.state;
     // conversation phases take priority over ambient behavior
     if (inp.phase === 'listening' || inp.phase === 'transcribing') { if (s !== 'listening') { this.clip = null; this.enter('listening'); } return; }
@@ -175,19 +221,34 @@ export class Behavior {
   }
 
   /** Target pose for the current state. */
-  private pose(inp: BehaviorInputs): Params {
+  private pose(inp: BehaviorInputs, dt: number): Params {
     const p: Params = { ...NEUTRAL };
     const k = Math.max(0, inp.intensity);
     const c = this.clock;
-    // ambient life present in every state: breathing, float bob, sway
-    p.breathe = 0.5 + 0.5 * Math.sin(c * 1.6);
-    p.bodyY = Math.sin(c * 1.1) * 3 * k;
-    p.bodyX = Math.sin(c * 0.37) * 2 * k;
-    p.bodyRot = Math.sin(c * 0.29) * 0.015 * k;
-    p.headRoll = Math.sin(c * 0.45 + 1) * 0.03 * k;
-    p.hip = Math.sin(c * 0.21) * 0.5 * k;
+    // slow drifting noise (never the same twice) where the old version had pure sinusoids
+    const n = this.legacy ? (f: number, ph: number) => Math.sin(c * f * 6.3 + ph) : (f: number, ph: number) => drift(c * f, this.seed + ph * 977);
+    // ambient life present in every state: breathing, float bob, sway, weight held on one hip a while
+    if (this.legacy) {
+      p.breathe = 0.5 + 0.5 * Math.sin(c * 1.6);
+      p.bodyY = Math.sin(c * 1.1) * 3 * k;
+      p.bodyX = Math.sin(c * 0.37) * 2 * k;
+      p.bodyRot = Math.sin(c * 0.29) * 0.015 * k;
+      p.headRoll = Math.sin(c * 0.45 + 1) * 0.03 * k;
+      p.hip = Math.sin(c * 0.21) * 0.5 * k;
+      p.maskGlow = 0.25 + 0.05 * Math.sin(c * 2);
+    } else {
+      const sleeping = this.state === 'sleeping';
+      p.breathe = this.breath.update(dt, sleeping ? 1.8 : 1);
+      const hold = this.micro.update(sleeping ? 0 : dt);
+      // hovering: the bob drifts, and the chest lifting her a touch on each breath
+      p.bodyY = (n(0.32, 1) * 2.6 - (p.breathe - 0.5) * 1.6) * k + 0;
+      p.bodyX = n(0.07, 2) * 2.2 * k + 0;
+      p.bodyRot = (n(0.1, 3) * 0.01 + hold.bodyRot) * k;
+      p.headRoll = (n(0.15, 4) * 0.025 + hold.headRoll) * k;
+      p.hip = (hold.hip + n(0.09, 5) * 0.12) * k;
+      p.maskGlow = 0.25 + 0.05 * n(0.6, 6);
+    }
     p.hairWind = 0.25 * k;
-    p.maskGlow = 0.25 + 0.05 * Math.sin(c * 2);
 
     // the whole body turns toward what she looks at, not just the eyes
     const lookAt = (x: number, y: number) => { p.gazeX = x; p.gazeY = y; p.headYaw = x * 0.45; p.headPitch = y * 0.35; p.turn = clamp(x * 0.55, -1, 1); };
@@ -198,7 +259,7 @@ export class Behavior {
         // she holds a 3/4 or side-on stance for a while, then snaps to another (held frames, EFGpu 2:45)
         this.idleTurnT -= this.lastDt;
         if (this.idleTurnT <= 0) { const r = this.rand(); this.idleTurn = r < 0.3 ? 0 : (this.rand() < 0.5 ? -1 : 1) * (r < 0.75 ? 0.5 : 1); this.idleTurnT = 3 + this.rand() * 6; }
-        if (!inp.pointer) { lookAt(Math.sin(c * 0.23) * 0.12 + this.idleTurn * 0.4, Math.sin(c * 0.31) * 0.08); p.turn = this.idleTurn; }
+        if (!inp.pointer) { lookAt(n(0.04, 7) * 0.12 + this.idleTurn * 0.4, n(0.05, 8) * 0.08); p.turn = this.idleTurn; }
         break;
       case 'lookAround':
       case 'distracted': {
@@ -227,13 +288,13 @@ export class Behavior {
         break;
       case 'speaking': {
         const lvl = inp.speechLevel;
-        if (!inp.pointer) lookAt(Math.sin(c * 0.7) * 0.2, 0.05);
+        if (!inp.pointer) lookAt(n(0.11, 9) * 0.2, 0.05);
         p.mouthOpen = lvl;
         p.mouthSmile = 0.45;
         p.headPitch += -lvl * 0.15 * k; // nod on stressed syllables
-        p.headRoll += Math.sin(c * 2.3) * 0.05 * k;
+        p.headRoll += n(0.37, 10) * 0.05 * k;
         p.maskGlow = 0.35 + lvl * 0.5;
-        p.armRRaise = 0.18 + 0.12 * Math.sin(c * 1.3) * k; // conversational hand
+        p.armRRaise = 0.18 + 0.12 * n(0.2, 11) * k + lvl * 0.08 * k; // conversational hand, livelier on loud words
         p.float = 0.5;
         break;
       }
@@ -255,7 +316,8 @@ export class Behavior {
       case 'sleeping':
         p.sleep = 1; p.blinkL = 1; p.blinkR = 1; p.headPitch = 0.6; p.headRoll = 0.18; p.float = 0.1; p.mouthSmile = 0.1;
         p.gazeX = 0; p.gazeY = 0.5; p.headYaw = 0;
-        p.breathe = 0.5 + 0.5 * Math.sin(c * 0.8); p.bodyY = 6 + Math.sin(c * 0.8) * 2; p.maskGlow = 0.08; p.hairWind = 0.05;
+        if (this.legacy) p.breathe = 0.5 + 0.5 * Math.sin(c * 0.8);
+        p.bodyY = 6 + (p.breathe - 0.5) * 4; p.maskGlow = 0.08; p.hairWind = 0.05;
         break;
       case 'returning': // stretch & shake off sleep
         p.armLRaise = 0.9 * Math.sin(Math.min(1, this.t / 1.4) * Math.PI); p.armRRaise = p.armLRaise; p.eyeWide = 0.2;
@@ -291,4 +353,5 @@ export class Behavior {
 }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+const pickBody = (p: Params): Partial<Params> => ({ hipDrop: p.hipDrop, thighL: p.thighL, kneeL: p.kneeL, foreL: p.foreL, thighR: p.thighR, kneeR: p.kneeR, foreR: p.foreR, lean: p.lean });
 const ADDITIVE = new Set<keyof Params>(['bodyX', 'bodyY', 'bodyRot', 'headRoll', 'headPitch', 'hip', 'gazeX']);

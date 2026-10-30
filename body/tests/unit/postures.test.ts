@@ -47,7 +47,7 @@ describe('posture behaviour', () => {
   it('a sitting posture really lowers her and bends the legs', () => {
     const b = new Behavior(prng(13));
     b.setPosture('sit_edge');
-    const p = run(b, 0.2, { surface: 'taskbar' });
+    const p = run(b, 1.6, { surface: 'taskbar' }); // after the sit-down transition
     expect(p.hipDrop).toBeGreaterThan(150);
     expect(Math.abs(p.thighL)).toBeGreaterThan(60);
   });
@@ -79,7 +79,7 @@ describe('posture behaviour', () => {
   it('state poses win over posture limbs (thinking hand-to-chin while sitting)', () => {
     const b = new Behavior(prng(18));
     b.setPosture('sit_edge');
-    const p = run(b, 0.5, { phase: 'thinking' });
+    const p = run(b, 1.6, { phase: 'thinking' }); // once seated (the sit-down plays first)
     expect(p.armLRaise).toBeCloseTo(0.55, 2);
     expect(p.hipDrop).toBeGreaterThan(150);
   });
