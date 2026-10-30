@@ -46,6 +46,7 @@ let settings: Settings;
 let phase: AssistantPhase = 'idle';
 let idleSec = 0;
 let quiet = false;
+let night = false; // tard le soir : elle se fait douce (comme « ne pas déranger », sans les restrictions)
 let paused = false;
 let pointer: { x: number; y: number } | null = null;
 let lastPointerAt = 0;
@@ -100,7 +101,14 @@ const brain = new BrainLink(onBrain, (sentence) => showBubble(sentence));
 onFaceConfig((c) => setHairColor(c.hairColor));
 function onBrain(e: BrainEvent) {
   switch (e.type) {
-    case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); shareSettings(); break;
+    case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; shareSettings(); break;
+    case 'night': night = e.on; break;
+    case 'notice': // une réaction à ce qui se passe sur le PC : un geste et une petite bulle, sans rien interrompre
+      if (dragging || phase !== 'idle' || !replyDone) break;
+      if (e.emote) emote(e.emote);
+      if (e.text) showBubble(e.text);
+      break;
+    case 'discreet': if (e.on) { roamer.halt(60_000); void api.invoke('teleport:now', 'corner').catch(() => undefined); } break;
     case 'face': setFaceConfig(e.config); break; // tuned live in the face editor
     case 'hearing': if (phase === 'idle') phase = 'listening'; behavior.wake(); break;
     case 'heard': phase = e.ignored ? (replyDone ? 'idle' : phase) : 'thinking'; break;
@@ -213,7 +221,7 @@ function tick(dt: number) {
   }
   const walk = dashing || roam.walkDir; // the drawn walk (feet added on the leg tips, see SpriteBody.drawFeet)
   const target: Params = behavior.update(dt, {
-    phase, speechLevel: level, speaking, pointer, idleSec, quiet, intensity,
+    phase, speechLevel: level, speaking, pointer, idleSec, quiet: quiet || night, intensity: night ? intensity * 0.6 : intensity,
     sleepAfterSec: settings.behavior.sleepAfterMinutes * 60,
     surface, dashing: walk, held: dragging,
   });
@@ -221,7 +229,7 @@ function tick(dt: number) {
   const b = blinker.update(dt, { drowsy: target.sleep, suppressed: behavior.state === 'sleeping' });
   target.blinkL = Math.max(target.blinkL, b);
   target.blinkR = Math.max(target.blinkR, b);
-  if (!settings.character.glitchEffects) target.glitch = 0;
+  if (!settings.character.glitchEffects || night) target.glitch = 0;
   // departure: the many-eyes bloom flashes as she starts to fragment (N 2:14)
   if (fx.phase === 'out') target.manyEyes = Math.max(target.manyEyes, Math.sin(Math.min(1, fx.u / 0.6) * Math.PI));
   if (forced) Object.assign(target, forced);
@@ -275,6 +283,23 @@ function trackPat(x: number, y: number) {
   }
 }
 
+// the cursor rushing at her face: now and then she ducks aside, then looks back at it (never while busy or held)
+let lastMove = { x: 0, y: 0, t: 0 }, dodgeCool = 0;
+function maybeDodge(x: number, y: number) {
+  const now = performance.now(), dt = (now - lastMove.t) / 1000;
+  const hx = W / 2, hy = H * 0.34;
+  const closing = Math.hypot(lastMove.x - hx, lastMove.y - hy) - Math.hypot(x - hx, y - hy);
+  const speed = dt > 0 && dt < 0.1 ? closing / dt : 0;
+  lastMove = { x, y, t: now };
+  if (speed < 1800 || now < dodgeCool || dragging || phase !== 'idle' || !replyDone || quiet || night || roamer.moving) return;
+  if (Math.random() > 0.3 || !settings?.behavior.idlePeek) { dodgeCool = now + 4000; return; }
+  dodgeCool = now + 25_000;
+  const dir = x > hx ? -1 : 1; // away from the cursor
+  behavior.react('surprised');
+  for (let i = 0; i < 6; i++) setTimeout(() => void api.invoke('char:step', { dx: dir * 14, dy: i < 3 ? -6 : 6 }).catch(() => undefined), i * 16);
+  setTimeout(() => { if (Math.random() < 0.5) behavior.playClip('tease', 'reacting'); }, 500);
+}
+
 // ---------------------------------------------------------------- teleport (window move happens in main between phases)
 fx.onDone = (id, ph) => {
   void api.invoke('char:teleport', { id, phase: ph });
@@ -304,6 +329,7 @@ window.addEventListener('mousemove', (e) => {
   pointer = { x: (e.clientX - W / 2) / (W * 0.45), y: (e.clientY - H * 0.34) / (H * 0.35) };
   if (!dragging) setHit(!fx.active && !fx.hidden && model.hitTest(ctx, e.clientX, e.clientY, dpr));
   trackPat(e.clientX, e.clientY);
+  maybeDodge(e.clientX, e.clientY);
 });
 window.addEventListener('mouseleave', () => { pointer = null; if (!dragging) setHit(false); });
 window.addEventListener('mousedown', (e) => {

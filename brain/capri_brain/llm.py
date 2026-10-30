@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import time
 import re
 import logging
 import os
@@ -43,6 +44,10 @@ class _GpuCrash(Exception):
     pass
 
 
+class _Preempted(Exception):
+    pass
+
+
 class LLMError(Exception):
     pass
 
@@ -69,6 +74,14 @@ class LLM:
         # Les modèles "qui réfléchissent" (Qwen3…) sont bien plus rapides sans réflexion visible.
         # Si le modèle ne gère pas cette option, on arrête de l'envoyer.
         self._send_think = True
+        # Priorités : la conversation passe avant ses réflexions de fond (souvenirs, pensées, curiosité).
+        # Une tâche de fond attend que la discussion se calme, et s'efface dès que tu reparles.
+        self.foreground = 0
+        self.last_foreground = 0.0
+        self.quiet_after = 25.0  # secondes de calme après un échange avant de réfléchir en arrière-plan
+        self.last_stats: dict = {}  # chiffres d'Ollama pour la dernière réponse (tokens/s, lecture du prompt)
+        self._background = asyncio.Lock()  # une seule réflexion de fond à la fois
+        self.user_active_at = 0.0  # il vient de se mettre à parler (micro) : les réflexions de fond s'effacent
 
     def reload(self, cfg: dict) -> None:
         """Prend en compte un changement de fournisseur, de modèle ou de clé fait depuis le hub."""
@@ -102,18 +115,52 @@ class LLM:
         model = self.cloud()[1] if self.provider in PROVIDERS else self.ollama["model"]
         return f"{self.provider} · {model}"
 
+    def busy_talking(self) -> bool:
+        latest = max(self.last_foreground, self.user_active_at)
+        return bool(self.foreground) or time.monotonic() - latest < self.quiet_after
+
+    def user_speaking(self) -> None:
+        """Il commence une phrase : la carte graphique doit être libre pour l'écouter puis lui répondre."""
+        self.user_active_at = time.monotonic()
+
     async def stream(
         self, messages: list[dict], *, temperature: float | None = None, json_mode: bool = False,
-        tools: list[dict] | None = None,
+        tools: list[dict] | None = None, background: bool = False,
     ) -> AsyncIterator[str | ToolCall]:
-        """Texte de la réponse au fil de l'eau ; avec `tools`, peut aussi produire des ToolCall."""
+        """Texte de la réponse au fil de l'eau ; avec `tools`, peut aussi produire des ToolCall.
+        `background` : une réflexion à elle, qui attend son tour et s'interrompt si la conversation reprend."""
         temp = self.temperature if temperature is None else temperature
+        if background:
+            await self._background.acquire()
+            for _ in range(1800):  # au plus une demi-heure d'attente, sinon tant pis pour cette fois
+                if not self.busy_talking():
+                    break
+                await asyncio.sleep(1)
+            else:
+                self._background.release()
+                raise LLMError("pas de moment calme pour réfléchir")
+            began = time.monotonic()
+        else:
+            self.foreground += 1
         if self.provider in PROVIDERS:
             gen = self._cloud_stream(messages, temp, json_mode, tools)
         else:
             gen = self._ollama_stream(messages, temp, json_mode, tools=tools)
-        async for piece in gen:
-            yield piece
+        try:
+            async for piece in gen:
+                if background and (self.foreground or self.user_active_at > began):
+                    raise _Preempted()
+                yield piece
+        except _Preempted:
+            log.info("Réflexion de fond interrompue : la conversation passe d'abord")
+            raise LLMError("interrompue pour la conversation") from None
+        finally:
+            await gen.aclose()
+            if background:
+                self._background.release()
+            else:
+                self.foreground -= 1
+                self.last_foreground = time.monotonic()
 
     async def complete(self, messages: list[dict], **kwargs) -> str:
         return "".join([piece async for piece in self.stream(messages, **kwargs)])
@@ -123,7 +170,7 @@ class LLM:
             r = await self.http.post(
                 f"{self.ollama_url}/api/embed",
                 # sur le processeur : c'est rapide pour de si petits textes, et ça laisse la carte graphique au reste
-                json={"model": self.embed_model, "input": texts, "keep_alive": self.ollama["keep_alive"],
+                json={"model": self.embed_model, "input": texts, "keep_alive": "4h",  # petit, en mémoire vive
                       "options": {"num_gpu": 0}},
             )
         except httpx.HTTPError as e:
@@ -141,6 +188,30 @@ class LLM:
             ):
                 pass
         await self.embed(["search_query: test"])
+
+    async def ensure_loaded(self, system_prompt: str) -> None:
+        """Ton retour devant le PC : si Ollama a déchargé son modèle entre-temps, on le recharge tout de suite
+        (6 à 9 s) plutôt que de te faire attendre à ta première phrase."""
+        if self.provider != "ollama":
+            return
+        try:
+            loaded = (await self.http.get(f"{self.ollama_url}/api/ps", timeout=3)).json().get("models", [])
+        except Exception:
+            return
+        if not any(m.get("name") == self.ollama["model"] or m.get("model") == self.ollama["model"] for m in loaded):
+            log.info("Modèle déchargé pendant ton absence : rechargement anticipé")
+            await self.warmup(system_prompt)
+
+    async def unload(self) -> None:
+        """Libère la carte graphique (un jeu en a besoin). Rechargé par `ensure_loaded`."""
+        if self.provider != "ollama":
+            return
+        try:
+            await self.http.post(f"{self.ollama_url}/api/generate",
+                                 json={"model": self.ollama["model"], "keep_alive": 0}, timeout=10)
+            log.info("Modèle retiré de la carte graphique pendant le jeu")
+        except httpx.HTTPError:
+            pass
 
     async def _gpu_pause(self, detail: str) -> None:
         log.warning("Ollama a planté sur la carte graphique (%s) : nouvel essai", detail[:120])
@@ -209,6 +280,12 @@ class LLM:
                             yielded = True
                             yield ToolCall(fn.get("name", ""), args, call.get("id", ""))
                         if data.get("done"):
+                            gen_s = max(data.get("eval_duration", 1) / 1e9, 1e-6)
+                            self.last_stats = {"prompt_n": data.get("prompt_eval_count", 0),
+                                               "prompt_ms": round(data.get("prompt_eval_duration", 0) / 1e6),
+                                               "gen_n": data.get("eval_count", 0),
+                                               "tok_s": round(data.get("eval_count", 0) / gen_s, 1),
+                                               "load_ms": round(data.get("load_duration", 0) / 1e6)}
                             log.info(
                                 "Ollama : %s tokens lus en %.2fs, %s générés à %.0f tok/s",
                                 data.get("prompt_eval_count", 0),

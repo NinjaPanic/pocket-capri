@@ -21,7 +21,9 @@ url = "http://127.0.0.1:11434"
 model = "qwen3-vl:8b-instruct"
 num_ctx = 8192
 # Garde le modèle chargé en mémoire GPU pendant ce temps d'inactivité.
-keep_alive = "30m"
+# (avant : "30m" ; le recharger coûte 6 à 9 s sur ta première phrase. Il est aussi rechargé
+#  d'avance quand tu reviens devant le PC, et tout s'éteint quand tu quittes Capri.)
+keep_alive = "4h"
 
 [llm.groq]
 # Clé gratuite sur https://console.groq.com/keys
@@ -37,6 +39,12 @@ wake_word = true
 follow_up_seconds = 8
 # Silence (en secondes) qui marque la fin de ta phrase. Plus court = plus réactif.
 end_silence = 0.6
+# Si ta phrase s'arrête au milieu d'une idée (« et… », « parce que… », « euh »), elle attend jusqu'à ça.
+end_silence_long = 1.3
+# Dès ce court silence, ta phrase part en transcription « au cas où » : le texte est prêt à la fin du silence.
+pre_transcribe_silence = 0.28
+# Tu peux lui couper la parole sans dire « Capri » (sa voix baisse dès que tu parles, s'arrête si c'est toi).
+barge_in = true
 stt_model = "large-v3-turbo"
 # "edge" = voix naturelle de Microsoft (gratuite, sans clé, en ligne) ; "kokoro" = voix locale (hors ligne, plus robotique).
 tts_engine = "edge"
@@ -60,3 +68,10 @@ absence_minutes = 20
 # seulement entre ces heures, jamais pendant un jeu en plein écran.
 spontane_minutes = 8
 spontane_heures = [9, 23]
+# Elle réagit à ce qui se passe sur le PC (jeu lancé ou fermé, réseau, clé USB, processeur qui chauffe,
+# batterie, longue session) : un geste et une bulle, et quelques mots seulement quand ça compte.
+reactions_pc = true
+# Pendant un jeu, son modèle quitte la carte graphique (~6 Go rendus au jeu) et revient à la fin du jeu.
+liberer_gpu_en_jeu = true
+# Ses heures « de nuit » : voix plus basse, gestes calmes, pas d'effets lumineux.
+nuit = [23, 7]

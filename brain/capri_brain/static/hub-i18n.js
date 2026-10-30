@@ -49,7 +49,11 @@ const EN = {
   "minutes de silence, 0 = jamais": "minutes of silence, 0 = never",
   "Comment elle t'écoute et te parle.": "How she listens and talks to you.", "Ne répondre qu'à « Capri »": "Only answer to “Capri”",
   "Répondre sans redire son nom": "Answer without saying her name again", "secondes après sa réponse": "seconds after her answer",
-  "Silence de fin de phrase": "End-of-sentence silence", "secondes": "seconds", "Vitesse de sa voix": "Voice speed",
+  "Silence de fin de phrase": "End-of-sentence silence", "Attente si ta phrase n'est pas finie": "Wait when your sentence isn't finished",
+  "« et… », « parce que… », « euh »": "“and…”, “because…”, “uh”", "Lui couper la parole sans dire « Capri »": "Interrupt her without saying “Capri”",
+  "sa voix baisse dès que tu parles": "her voice dips as soon as you speak", "Réagir à ce qui se passe sur le PC": "React to what happens on the PC",
+  "jeu lancé, réseau, clé USB, processeur qui chauffe, longue session": "game started, network, USB drive, hot CPU, long session",
+  "Libérer la carte graphique pendant un jeu": "Free the graphics card during games", "son modèle revient quand le jeu se ferme": "her model comes back when the game closes", "secondes": "seconds", "Vitesse de sa voix": "Voice speed",
   "Cerveau": "Brain",
   "Le modèle qui la fait penser. Ollama tourne sur ton PC (privé, gratuit). Les services en ligne sont souvent plus rapides ou plus malins, mais tes messages passent par leurs serveurs.":
     "The model she thinks with. Ollama runs on your PC (private, free). Online services are often faster or smarter, but your messages go through their servers.",

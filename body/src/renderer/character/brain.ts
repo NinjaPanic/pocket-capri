@@ -9,7 +9,7 @@
 export const BRAIN_URL = 'ws://127.0.0.1:8765/ws';
 
 export type BrainEvent =
-  | { type: 'hello'; mood: string; status: string; voice: string; face?: Record<string, unknown> }
+  | { type: 'hello'; mood: string; status: string; voice: string; face?: Record<string, unknown>; night?: boolean }
   | { type: 'face'; config: Record<string, unknown> }
   | { type: 'status'; status: string }
   | { type: 'voice'; status: string }
@@ -28,7 +28,12 @@ export type BrainEvent =
   | { type: 'hearing' }
   | { type: 'heard'; text: string; ignored: boolean }
   | { type: 'audio'; id: number; seq: number; rate: number; text: string; pcm: string }
-  | { type: 'stop_audio' };
+  | { type: 'stop_audio' }
+  | { type: 'notice'; emote: string; text: string } // elle a senti quelque chose sur le PC (jeu, réseau, USB…)
+  | { type: 'discreet'; on: boolean } // un jeu commence : elle file dans un coin
+  | { type: 'night'; on: boolean } // tard le soir : gestes calmes, pas d'effets lumineux
+  | { type: 'duck' } // il se met à parler pendant qu'elle parle : sa voix baisse tout de suite
+  | { type: 'unduck' }; // ce n'était que l'écho de sa voix : elle remonte
 
 // Paquets de 512 échantillons (32 ms) à 16 kHz, comme l'attend la détection de voix du cerveau.
 const WORKLET = `
@@ -57,6 +62,7 @@ export class BrainLink {
 
   private out: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  private gain: GainNode | null = null;
   private level = new Float32Array(512);
   private sources: AudioBufferSourceNode[] = [];
   private next = 0;
@@ -81,6 +87,8 @@ export class BrainLink {
       try { e = JSON.parse(m.data as string); } catch { return; }
       if (e.type === 'audio') this.play(e);
       else if (e.type === 'stop_audio') this.stopAudio();
+      else if (e.type === 'duck') this.setGain(0.25, 0.06);
+      else if (e.type === 'unduck') this.setGain(1, 0.25);
       // le micro ne sert à rien tant que les oreilles du cerveau ne sont pas chargées
       const voice = e.type === 'hello' ? e.voice : e.type === 'voice' ? e.status : null;
       if (voice === 'prête' && this.wantMic && !this.micOn) void this.startMic();
@@ -141,10 +149,11 @@ export class BrainLink {
       this.out = new AudioContext();
       this.analyser = this.out.createAnalyser();
       this.analyser.fftSize = 512;
-      this.analyser.connect(this.out.destination);
+      this.gain = this.out.createGain();
+      this.analyser.connect(this.gain).connect(this.out.destination);
     }
     if (m.id < this.current) return;
-    if (m.id > this.current) { this.stopAudio(); this.current = m.id; }
+    if (m.id > this.current) { this.stopAudio(); this.current = m.id; this.setGain(1, 0.01); }
     const bytes = Uint8Array.from(atob(m.pcm), (c) => c.charCodeAt(0));
     const pcm = new Int16Array(bytes.buffer);
     const buffer = this.out.createBuffer(1, pcm.length, m.rate);
@@ -158,14 +167,28 @@ export class BrainLink {
     this.next = at + buffer.duration;
     this.sources.push(src);
     src.onended = () => { this.sources = this.sources.filter((s) => s !== src); };
-    // sous-titre affiché quand la phrase commence vraiment
-    setTimeout(() => { if (this.sources.includes(src)) this.onSentence(m.text); }, Math.max(0, (at - this.out.currentTime) * 1000));
+    // sous-titre affiché quand la phrase commence vraiment (la suite d'une phrase arrive sans texte)
+    setTimeout(() => {
+      if (!this.sources.includes(src)) return;
+      if (m.text) this.onSentence(m.text);
+      if (m.seq === 0) this.send({ type: 'played', id: m.id, seq: 0 }); // pour mesurer sa vraie réactivité
+    }, Math.max(0, (at - this.out.currentTime) * 1000));
   }
 
   stopAudio() {
     for (const s of this.sources) { try { s.stop(); } catch { /* déjà fini */ } }
     this.sources = [];
     this.next = 0;
+    this.setGain(1, 0.01);
+  }
+
+  /** Volume de sa voix, en douceur (pas de clic). */
+  private setGain(v: number, seconds: number) {
+    if (!this.gain || !this.out) return;
+    const g = this.gain.gain, t = this.out.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(v, t + seconds);
   }
 
   /** Volume RMS de sa voix à cet instant (0 à ~0.5), pour la bouche. */

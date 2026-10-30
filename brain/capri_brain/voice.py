@@ -48,8 +48,25 @@ def _plain(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn")
 
 
+# Une phrase qui finit sur ces mots n'est pas finie : il cherche la suite, on lui laisse le temps.
+_UNFINISHED = re.compile(
+    r"(?:\.\.\.|…|,|\b(?:et|mais|ou|donc|alors|parce|que|qu|qui|de|du|des|le|la|les|un|une|à|au|aux|euh|heu|hum|"
+    r"en|pour|avec|sur|si|je|tu|il|elle|on|mon|ma|mes|ton|ta|tes|son|sa|ses|ce|cette|comme|quand|est-ce|"
+    r"the|and|but|or|so|because|to|of|a|an|uh|um|my|your|with|for|if|when|like))\W*$", re.I)
+
+
+def unfinished(text: str) -> bool:
+    """La transcription s'arrête au milieu d'une idée (« et », « parce que », « euh »…)."""
+    return bool(_UNFINISHED.search(_plain(text).strip()))
+
+
 class Segmenter:
-    """Découpe un flux micro en phrases grâce à Silero VAD (une instance par client)."""
+    """Découpe un flux micro en phrases grâce à Silero VAD (une instance par client).
+
+    Dès un court silence (~0,3 s), la phrase déjà dite part en transcription « au cas où » (événement
+    "pause") : si le silence dure jusqu'à la fin de phrase, ce texte est déjà prêt et on gagne tout le temps
+    de Whisper. Si tu reprends la parole, ce brouillon est jeté. Et si ce brouillon finit au milieu d'une idée
+    (« et… », « parce que… »), on attend plus longtemps avant de couper (`extend`)."""
 
     def __init__(self, cfg: dict):
         from pysilero_vad import SileroVoiceActivityDetector
@@ -64,11 +81,21 @@ class Segmenter:
         self.silent = 0
         self.active = False
         self._pending = b""
+        self.segment = 0          # numéro de la phrase en cours
+        self.paused = False       # un brouillon de transcription est parti pour ce silence
+        self.extend = False       # le brouillon finit au milieu d'une idée : on attend plus
+        self.voice_frames = 0     # trames de voix dans la phrase (une toux ou un clic n'en a presque pas)
+        self.draft_ready = False  # le brouillon est revenu (sinon on l'attend un peu avant de couper)
 
-    def feed(self, data: bytes) -> list[tuple[str, bytes | None]]:
-        """Renvoie des événements : ("start", None) quand on parle, ("end", pcm) en fin de phrase."""
+    def feed(self, data: bytes) -> list[tuple[str, object]]:
+        """Événements : ("start", segment) quand on parle, ("voiced", segment) après ~0,25 s de vraie voix,
+        ("pause", (segment, pcm)) au premier court silence,
+        ("resume", segment) si la parole reprend, ("end", (segment, pcm, brouillon_valable)) en fin de phrase."""
         events = []
         self._pending += data
+        end_frames = int(self.cfg.get("end_silence", 0.6) / FRAME_SECONDS)
+        long_frames = int(self.cfg.get("end_silence_long", 1.3) / FRAME_SECONDS)
+        pause_frames = min(end_frames - 2, int(self.cfg.get("pre_transcribe_silence", 0.28) / FRAME_SECONDS))
         while len(self._pending) >= FRAME_BYTES:
             frame, self._pending = self._pending[:FRAME_BYTES], self._pending[FRAME_BYTES:]
             prob = self.vad(frame)
@@ -77,18 +104,37 @@ class Segmenter:
                 self.voiced = self.voiced + 1 if prob > 0.5 else 0
                 if self.voiced >= self.start_frames:
                     self.active = True
+                    self.segment += 1
                     self.frames = list(self.preroll)
                     self.silent = 0
-                    events.append(("start", None))
+                    self.paused = self.extend = self.draft_ready = False
+                    self.voice_frames = self.voiced
+                    events.append(("start", self.segment))
             else:
                 self.frames.append(frame)
-                self.silent = self.silent + 1 if prob < 0.35 else 0
-                if self.silent >= int(self.cfg.get("end_silence", 0.6) / FRAME_SECONDS) or len(self.frames) >= self.max_frames:
-                    events.append(("end", b"".join(self.frames)))
+                if prob < 0.35:
+                    self.silent += 1
+                else:
+                    self.voice_frames += prob > 0.5
+                    if self.voice_frames == 8 and prob > 0.5:
+                        events.append(("voiced", self.segment))
+                    if self.paused:  # il reprend : le brouillon ne vaut plus rien
+                        self.paused = self.extend = self.draft_ready = False
+                        events.append(("resume", self.segment))
+                    self.silent = 0
+                if self.silent == pause_frames and not self.paused and pause_frames > 0:
+                    self.paused = True
+                    events.append(("pause", (self.segment, b"".join(self.frames))))
+                # fin de phrase : silence assez long, mais si le brouillon n'est pas encore revenu on l'attend
+                # (il dit si la phrase est finie ; de toute façon il aurait fallu transcrire après)
+                limit = long_frames if self.extend or (self.paused and not self.draft_ready) else end_frames
+                if self.silent >= limit or len(self.frames) >= self.max_frames:
+                    events.append(("end", (self.segment, b"".join(self.frames), self.paused)))
                     self.active = False
                     self.frames = []
                     self.preroll.clear()
                     self.voiced = 0
+                    self.paused = self.extend = self.draft_ready = False
         return events
 
 
@@ -109,12 +155,19 @@ class Ears:
             self.model = WhisperModel("small", device="cpu", compute_type="int8",
                                       download_root=str(models_dir / "whisper"))
             self.device = "CPU"
+        # le tout premier passage sur la carte graphique est 4× plus lent (préparation des calculs) :
+        # on le fait maintenant plutôt que sur ta première phrase
+        t = time.perf_counter()
+        noise = (np.random.default_rng(0).standard_normal(16000) * 200).astype(np.int16).tobytes()
+        self.transcribe(noise)
+        log.info("Oreilles préchauffées en %.0f ms", (time.perf_counter() - t) * 1000)
 
     def transcribe(self, pcm: bytes, lang: str = "fr") -> str:
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768
         segments, _ = self.model.transcribe(
             audio, language=lang, beam_size=1, initial_prompt="Capri,",
             condition_on_previous_text=False, vad_filter=False,
+            without_timestamps=True,  # ~15 % plus rapide, on ne se sert pas des horodatages
         )
         kept = [s.text for s in segments if s.no_speech_prob < 0.6 and s.avg_logprob > -1.0]
         text = " ".join(kept).strip()
@@ -173,11 +226,12 @@ class SentenceSplitter:
         out = []
         while True:
             match = self.END.search(self.buffer)
-            # La 1re phrase peut être coupée sur une virgule si elle est longue : ça démarre la voix plus tôt.
-            if not match and self.first and len(self.buffer) > 80:
-                match = re.search(r",\s+", self.buffer[40:])
+            # La 1re phrase peut être coupée sur une virgule (ou deux-points, tiret) dès qu'elle a un peu de corps :
+            # la voix démarre plus tôt, et la suite se prépare pendant qu'elle parle.
+            if not match and self.first and len(self.buffer) > 34:
+                match = re.search(r"[,;:]\s+|\s[—–-]\s", self.buffer[18:])
                 if match:
-                    cut = 40 + match.end()
+                    cut = 18 + match.end()
                     out.append(self.buffer[:cut])
                     self.buffer = self.buffer[cut:]
                     self.first = False
@@ -306,6 +360,53 @@ def chosen_voice(cfg: dict) -> str:
     return cfg.get("tts_natural_voice") or "fr-FR-VivienneMultilingualNeural"
 
 
+def _edge_params(mood: str, cfg: dict) -> tuple[str, str, str, str]:
+    voice = chosen_voice(cfg)
+    base = float(cfg.get("tts_speed", 1.05))
+    rate, pitch = MOOD_PROSODY.get(mood, ("+0%", "+0Hz"))
+    pitch = f"{min(50, int(pitch.rstrip('Hz')) + int(cfg.get('tts_pitch', 0))):+d}Hz"
+    rate = f"{int(round((base - 1) * 100 + int(rate.rstrip('%')))):+d}%"
+    volume = int(MOOD_VOLUME.get(mood, "+0%").rstrip("%"))
+    if cfg.get("nuit"):  # tard le soir : elle parle plus doucement
+        volume = min(volume, 0) - 35
+    return voice, rate, pitch, f"{volume:+d}%"
+
+
+# Le service envoie le MP3 au fil de l'eau : dès ~0,6 s de son reçu, on décode le début et on le joue
+# pendant que la fin arrive. (Le MP3 se décode toujours depuis le début, pareil : on garde une marge de
+# deux trames pour ne jouer que des échantillons définitifs, la suite repart exactement de là.)
+FIRST_MP3_BYTES = 3600      # 48 kbit/s → ~0,6 s
+MP3_MARGIN = 2048           # échantillons gardés pour la fin (2 à 3 trames)
+
+
+async def natural_voice_pieces(text: str, mood: str, cfg: dict):
+    """Sa voix naturelle par morceaux (pcm, fréquence) : le premier arrive avant la fin de la synthèse."""
+    import edge_tts
+    import miniaudio
+    voice, rate, pitch, volume = _edge_params(mood, cfg)
+    mp3 = bytearray()
+    sent = 0
+    fmt = miniaudio.SampleFormat.SIGNED16
+    async for chunk in edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, volume=volume).stream():
+        if chunk["type"] != "audio":
+            continue
+        mp3 += chunk["data"]
+        if not sent and len(mp3) >= FIRST_MP3_BYTES:
+            try:
+                dec = miniaudio.decode(bytes(mp3), output_format=fmt, nchannels=1)
+            except miniaudio.DecodeError:
+                continue
+            safe = len(dec.samples) - MP3_MARGIN
+            if safe > dec.sample_rate * 0.3:
+                sent = safe
+                yield dec.samples[:safe].tobytes(), dec.sample_rate
+    if not mp3:
+        raise RuntimeError("aucun son reçu")
+    dec = miniaudio.decode(bytes(mp3), output_format=fmt, nchannels=1)
+    if len(dec.samples) > sent:
+        yield dec.samples[sent:].tobytes(), dec.sample_rate
+
+
 async def natural_voice(text: str, mood: str, cfg: dict) -> tuple[bytes, int]:
     import edge_tts
     import miniaudio
@@ -348,8 +449,38 @@ class Voice:
         self.local_ok, self.local_checked = False, 0.0
         if cfg.get("tts_engine") == "local":
             start_local_voice()
+        elif cfg.get("tts_engine", "edge") == "edge":
+            # les premières demandes d'un nouveau processus au service de Microsoft sont lentes (~3 s) :
+            # on les fait au chargement, pas sur sa première phrase
+            import threading
+            threading.Thread(target=lambda: asyncio.run(self._warm_edge()), daemon=True).start()
         # Heure (estimée) à laquelle les clients auront fini de jouer sa voix.
         self.speaking_until = 0.0
+        # ce qu'elle vient de dire : si le micro le « réentend », c'est l'écho de sa propre voix, pas toi
+        self.recent_said: deque[tuple[float, str]] = deque(maxlen=12)
+
+    async def _warm_edge(self) -> None:
+        for _ in range(2):
+            try:
+                async for _piece in natural_voice_pieces("Hm.", "neutre", self.cfg):
+                    pass
+            except Exception:
+                pass
+
+    def said(self, text: str) -> None:
+        if text.strip():
+            self.recent_said.append((time.time(), text))
+
+    def is_echo(self, text: str) -> bool:
+        """La phrase entendue reprend surtout des mots qu'elle vient de prononcer : c'est sa voix dans le micro."""
+        words = re.findall(r"\w+", _plain(text))
+        if not words:
+            return True
+        said = " ".join(t for ts, t in self.recent_said if time.time() - ts < 25)
+        known = set(re.findall(r"\w+", _plain(said)))
+        if not known:
+            return False
+        return sum(w in known for w in words) / len(words) >= 0.6
 
     async def transcribe(self, pcm: bytes) -> str:
         async with self.stt_lock:
@@ -370,6 +501,101 @@ class Voice:
                 self.short_cache.pop(next(iter(self.short_cache)))
             self.short_cache[key] = result
         return result
+
+    async def synthesize_pieces(self, text: str, mood: str):
+        """Comme `synthesize`, mais par morceaux : avec la voix naturelle, le début d'une phrase se joue pendant
+        que la fin se synthétise encore. Les autres voix rendent la phrase d'un coup (un seul morceau)."""
+        if not text.strip():
+            return
+        key = (self.cfg.get("tts_engine", "edge"), chosen_voice(self.cfg), self.cfg.get("tts_pitch", 0), mood, text)
+        if len(text) <= 40 and (hit := self.short_cache.get(key)):
+            yield hit
+            return
+        if self.cfg.get("tts_engine", "edge") != "edge" or time.time() <= self.natural_down_until:
+            if result := await self.synthesize(text, mood):
+                yield result
+            return
+        pieces: list[bytes] = []
+        rate = 24000
+        async with self.natural_slots:
+            async for pcm, rate in self._edge_race(text, mood):
+                pieces.append(pcm)
+                yield pcm, rate
+        if pieces:
+            self.natural_failures = 0
+        if not pieces:
+            self.natural_failures += 1
+            log.warning("Voix naturelle : phrase sautée après 3 essais (%s)", text[:60])
+            if self.natural_failures >= 2:
+                self.natural_down_until = time.time() + 120
+                log.warning("Voix naturelle indisponible, voix locale pendant 2 minutes")
+        elif len(text) <= 40:
+            if len(self.short_cache) > 80:
+                self.short_cache.pop(next(iter(self.short_cache)))
+            self.short_cache[key] = (b"".join(pieces), rate)
+
+    # Le service de Microsoft répond parfois en 0,8 s, parfois en 5 s, et parfois pas du tout (« No audio »,
+    # au bout de ~3 s). Si rien n'est arrivé après HEDGE_AFTER secondes, une 2e demande part en parallèle
+    # (puis une 3e) : la première qui envoie du son gagne, les autres sont abandonnées.
+    HEDGE_AFTER = (1.2, 2.6)
+    GIVE_UP = 14.0
+
+    async def _edge_race(self, text: str, mood: str):
+        events: asyncio.Queue = asyncio.Queue()
+        winner: list[int] = []  # numéro de la demande qui a envoyé du son la première
+        workers: list[asyncio.Task] = []
+
+        async def worker(i: int) -> None:
+            try:
+                async for piece in natural_voice_pieces(text, mood, self.cfg):
+                    if not winner:
+                        winner.append(i)
+                    if winner[0] != i:
+                        return
+                    events.put_nowait(("piece", piece))
+                events.put_nowait(("done", i))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.info("Voix naturelle, demande %d ratée (%s)", i + 1, e.__class__.__name__)
+                events.put_nowait(("fail", i))
+
+        def launch() -> None:
+            workers.append(asyncio.create_task(worker(len(workers))))
+
+        launch()
+        start = time.monotonic()
+        failed = 0
+        try:
+            while True:
+                now = time.monotonic() - start
+                stagger = [t for t in self.HEDGE_AFTER[len(workers) - 1:] if not winner]
+                timeout = (stagger[0] - now) if stagger and len(workers) < 3 else (self.GIVE_UP - now)
+                try:
+                    kind, value = await asyncio.wait_for(events.get(), max(0.01, timeout))
+                except asyncio.TimeoutError:
+                    if not winner and len(workers) < 3 and time.monotonic() - start < self.GIVE_UP:
+                        launch()
+                        continue
+                    if winner:  # le son coule : on attend la suite sans limite courte
+                        start = time.monotonic()
+                        continue
+                    return
+                if kind == "piece":
+                    yield value
+                elif kind == "done" and winner and value == winner[0]:
+                    return
+                elif kind == "fail":
+                    if winner and value == winner[0]:
+                        return  # coupée en cours de phrase : on n'en recommence pas une autre
+                    failed += 1
+                    if not winner and len(workers) < 3:
+                        launch()  # une demande a échoué : une autre tout de suite
+                    elif not winner and failed >= len(workers):
+                        return
+        finally:
+            for w in workers:
+                w.cancel()
 
     async def _synthesize(self, text: str, mood: str) -> tuple[bytes, int] | None:
         if self.cfg.get("tts_engine", "edge") == "local":

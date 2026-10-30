@@ -236,6 +236,8 @@ const SETTINGS = [
     ["accueil", "Remarquer ton retour", "", "bool"],
     ["absence_minutes", "Absence avant de te saluer", "minutes", "number", 1, 240],
     ["spontane_minutes", "Phrase spontanée après", "minutes de silence, 0 = jamais", "number", 0, 600],
+    ["reactions_pc", "Réagir à ce qui se passe sur le PC", "jeu lancé, réseau, clé USB, processeur qui chauffe, longue session", "bool"],
+    ["liberer_gpu_en_jeu", "Libérer la carte graphique pendant un jeu", "son modèle revient quand le jeu se ferme", "bool"],
   ]],
   ["Mains", "Quand elle pilote ton PC.", "mains", [
     ["confirmer", "Demander avant d'envoyer, acheter, supprimer, fermer", "sinon elle le fait direct (éteindre le PC reste demandé)", "bool"],
@@ -244,6 +246,8 @@ const SETTINGS = [
     ["wake_word", "Ne répondre qu'à « Capri »", "", "bool"],
     ["follow_up_seconds", "Répondre sans redire son nom", "secondes après sa réponse", "number", 0, 30],
     ["end_silence", "Silence de fin de phrase", "secondes", "range", 0.3, 1.5, 0.05],
+    ["end_silence_long", "Attente si ta phrase n'est pas finie", "« et… », « parce que… », « euh »", "range", 0.8, 2.5, 0.1],
+    ["barge_in", "Lui couper la parole sans dire « Capri »", "sa voix baisse dès que tu parles", "bool"],
     ["tts_speed", "Vitesse de sa voix", "", "range", 0.7, 1.4, 0.05],
   ]],
 ];

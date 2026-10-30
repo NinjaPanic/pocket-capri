@@ -1,0 +1,300 @@
+# Pocket Capri — audit, plan et premier lot d'améliorations (30 octobre 2026)
+
+Ce document répond à la mission « enrichir Pocket Capri ». Il dit ce qui existait vraiment (vérifié dans le code,
+pas seulement d'après les noms de fichiers), ce qui a été fait dans ce lot, ce qui a été mesuré, et ce qui reste.
+
+**Priorité absolue suivie : la latence de la conversation vocale (parties K, L, M).** Le reste a été audité ;
+une partie des réactions de présence (A4, A5, E3, H1) a été faite dans ce lot.
+
+---
+
+## 1. Résultats mesurés (avant / après)
+
+Mesures faites sur ton PC (RTX 3060 12 Go, Ryzen 5 5600X, 16 Go), Ollama 0.40.13, `qwen3-vl:8b-instruct` Q4_K_M,
+Whisper large-v3-turbo int8_float16 sur GPU, voix edge-tts « Ava Multilingual ». Les deux versions ont tourné
+l'une après l'autre, sur une **copie** de ta mémoire, sur des ports de test (8776 = avant, 8775 = après), avec de
+vraies phrases parlées (voix locale Kokoro → 16 kHz) envoyées au rythme d'un micro.
+
+Mesure faite le 31 octobre vers 0 h 40, **PC libre** (jeu fermé, carte graphique à 5 %), version finale de ce lot,
+4 passes par scénario. Le modèle tournait à la même vitesse dans les deux cas (médiane 51 tok/s) : la différence
+vient bien de la chaîne vocale, pas de conditions plus favorables.
+
+**Fin de ta phrase → premier son reçu par l'avatar** (médiane / pire cas) :
+
+| Scénario | Avant | Après | Gain (médiane) |
+|---|---:|---:|---:|
+| Question simple (« Capri, ça va ? ») | 5 003 / 6 848 ms | **2 386** / 4 291 ms | −52 % |
+| Question avec souvenir | 2 503 / 2 563 ms | **1 509** / 4 239 ms | −40 % |
+| Réponse longue | 6 278 / 9 166 ms | **2 708** / 4 192 ms | −57 % |
+| Ta phrase est entendue (transcrite) | ~1 100 ms | **~800 ms** | −0,3 s |
+| Premier texte écrit | ~2 250 ms | **~1 500 ms** | −0,75 s |
+| Tu lui coupes la parole : sa voix s'arrête | 1 063 ms | **800 ms**, et elle **baisse dès que tu parles** | |
+| Après une interruption : nouvelle réponse | 4 356 ms | 4 523 ms | **pas d'amélioration** |
+
+**Étapes côté cerveau dans la version « après »** (16 tours voix, ms depuis la fin de ta phrase) :
+
+| Étape | Typique |
+|---|---:|
+| Texte transcrit disponible | **0** (brouillon réutilisé à chaque fois) |
+| Contexte et souvenirs prêts | 3 à 45 |
+| Premier token du modèle | 230 à 680 |
+| Première phrase complète | 580 à 1 170 |
+| Premier son prêt | **577 à 1 000** quand la voix de Microsoft répond vite ; **2 300 à 5 600** sinon |
+
+**Lecture honnête :**
+* Tout ce qui est local va maintenant très vite : texte prêt à la fin du silence, premier token en ~0,3 s, première
+  phrase en ~0,6–1 s. Les objectifs du cahier des charges (premier son en 0,5–1,2 s) sont atteints **quand la voix
+  en ligne répond bien**, ce qui arrive environ une fois sur deux.
+* **Le dernier goulot, c'est la voix de Microsoft** (Ava Multilingual) : 2 à 5 s par moments, même avec les
+  requêtes doublées. Prochaine piste, à décider avec toi : essayer la voix Denise (stable à ~1 s dans mes essais) ou
+  une voix locale sur la carte graphique.
+* La reprise après une interruption ne s'est pas améliorée (~4,5 s). Elle cumule la voix lente et l'arrêt de la
+  réponse précédente : c'est à creuser.
+* Le 30 octobre, pendant ta partie de Drive Together, le modèle tombait à 22–30 tok/s et Ollama a même cessé de
+  répondre une fois : un jeu lourd et le modèle cohabitent mal sur 12 Go, d'où l'option « libérer la carte
+  graphique en jeu ».
+
+### Ce que les mesures ont révélé
+
+| Étape | Mesuré | Commentaire |
+|---|---:|---|
+| Modèle seul, préfixe en cache | 1er token **55–130 ms**, **~48–52 tok/s**, 100 % GPU | Qwen3-VL 8B n'est **pas** le goulot quand la carte est libre |
+| Modèle, carte partagée avec un jeu + Wallpaper Engine | **22–31 tok/s** (jusqu'à 7–12 tok/s) | Explique les 10–19 tok/s de tes journaux du 30/10 : VRAM à 11,8/12 Go |
+| Chargement du modèle à froid | **6,7–9,2 s** | Arrivait après 30 min d'inactivité (`keep_alive = "30m"`) |
+| Whisper, 1er appel du processus | **1,5 s** | Préparation CUDA, payée sur ta 1re phrase |
+| Whisper, appels suivants | **270–480 ms** | 15 % de moins avec `without_timestamps` |
+| Fin de parole (VAD) | **600 ms** fixes | puis Whisper *après* ces 600 ms |
+| edge-tts, phrase complète | **0,6–1 s** en temps normal, **2–6 s** par moments | voix « Multilingual » : échecs `NoAudioReceived` fréquents (~2,9 s perdues chacun) |
+| edge-tts, voix Denise (non multilingue) | **0,8–1,2 s**, aucun échec sur 9 essais | piste si les voix Multilingual restent instables |
+| Rappel des souvenirs (embedding CPU) | **30–40 ms** (900 ms à froid) | négligeable une fois chargé |
+| Interruption (avant) | la nouvelle question **attendait la fin de l'écriture** de l'ancienne réponse | le verrou de conversation n'était jamais rendu plus tôt |
+
+---
+
+## 2. Ce qui a été fait dans ce lot
+
+### 2.1 Conversation vocale (K.2 → K.10)
+
+| Amélioration | Où | Effet |
+|---|---|---|
+| **Mesure de chaque étape** : fin de parole → transcrit → contexte → modèle → 1er token → 1re phrase → 1er son prêt → **1er son joué** (accusé de l'avatar) → fin. Médiane + 95e centile, CPU/RAM/VRAM toutes les 30 s, alerte « carte graphique presque pleine ». | `brain/capri_brain/perf.py`, `GET /api/perf`, `data/perf.jsonl` (durées seulement, jamais le texte) | Savoir enfin ce qui ralentit |
+| **Transcription anticipée** : dès 0,28 s de silence, ta phrase part en transcription ; si tu ne reprends pas, le texte est prêt à la fin du silence. | `voice.Segmenter`, `server._draft` | « transcrit » passe de ~350–480 ms à **0 ms** après la fin du silence |
+| **Fin de phrase intelligente** : si le brouillon finit par « et », « parce que », « euh », « mon »…, elle attend jusqu'à 1,3 s au lieu de 0,6 s. | `voice.unfinished`, `end_silence_long` | Tu peux faire une pause pour réfléchir sans être coupé |
+| **Whisper préchauffé** au chargement + `without_timestamps`. | `voice.Ears` | 1re phrase : −1,1 s ; ensuite −15 % |
+| **Voix progressive** : le MP3 d'edge-tts est décodé dès ~0,6 s reçue ; le début de la phrase se joue pendant que la fin arrive (marge de 2 trames, aucune coupure). | `voice.natural_voice_pieces` | −150 à −250 ms par phrase, plus sur les phrases longues |
+| **Requêtes vocales doublées** : si rien après 1,2 s, une 2e demande part en parallèle (puis une 3e à 2,6 s) ; la première qui envoie du son gagne. Un échec relance tout de suite. | `Voice._edge_race` | Les « trous » de 3–6 s du service deviennent rares |
+| **1er segment plus court** : coupé à la 1re virgule / deux-points / tiret après ~18 caractères (frontière naturelle, jamais au milieu d'un mot). | `voice.SentenceSplitter` | La voix démarre plus tôt |
+| **Interruption réelle** : une nouvelle phrase coupe **immédiatement** la voix *et* l'écriture (Ollama arrête de calculer), au lieu d'attendre la fin de l'ancienne réponse. Ce qu'elle disait est gardé et donné au modèle (« il t'a coupée pendant que tu disais… »). | `server.chat`, `_respond`, `stop_voice` | « attends », « non, plutôt… » fonctionnent sans perdre le fil |
+| **Lui couper la parole sans dire « Capri »** : sa voix **baisse dès 0,25 s** de ta voix (avant même la transcription), puis s'arrête si c'est toi ; si c'est l'écho de sa propre voix (≥ 60 % des mots qu'elle vient de dire), elle remonte. | `Voice.is_echo`, messages `duck`/`unduck`, `brain.ts` | Réaction perçue < 300 ms, sans fausses interruptions |
+| **Priorités** : ses réflexions de fond (extraction de souvenirs, pensées) attendent 25 s de calme, une seule à la fois, et **s'effacent dès que tu commences à parler** (puis réessaient). | `llm.stream(background=True)`, `user_speaking()` | Plus de réponse bloquée derrière une extraction de souvenirs |
+| **Cache du prompt préservé** : l'historique avance par blocs de 8 messages au lieu d'un ; le début de la conversation envoyée à Ollama reste identique, il reprend ce qu'il a déjà lu. | `server._history` | jusqu'à ~1 s de relecture évitée sur les longues conversations |
+| **Pas de recherche de souvenirs** pour « ok », « merci », « ça va ? »… + cache des recherches identiques. | `server.recall`, `TRIVIAL` | quelques dizaines de ms, et moins de travail |
+| **Modèle gardé 4 h** (au lieu de 30 min) et **rechargé d'avance** quand tu reviens devant le PC. | `config.toml`, `llm.ensure_loaded` | plus de 7–9 s d'attente après une pause |
+| **Pendant un jeu**, le modèle quitte la carte graphique au bout de 2 min (~6 Go rendus au jeu) et revient à la fermeture du jeu. Désactivable. | `server._free_gpu_for_game`, `llm.unload` | jeux plus fluides, Capri prête à la sortie |
+
+### 2.2 Présence sur le PC (A4, A5, E3, E4, H1)
+
+* **Moteur d'événements** (`senses.py` + `server.react_to_events`) : relevés légers toutes les 10 s (psutil +
+  Windows, aucune capture, aucun contenu de fenêtre ; seul le nom du programme au premier plan sert à reconnaître
+  un jeu). Chaque événement a une importance, une durée de validité, un délai par sorte et une probabilité.
+  « Ne pas déranger » coupe tout ; une conversation en cours passe avant (l'événement attend, puis est oublié
+  s'il est périmé) ; au plus une prise de parole spontanée toutes les 4 minutes.
+* **Réactions** : processeur à fond plus de 90 s (« il fait chaud »), batterie ≤ 15 %, chargeur branché/débranché,
+  Internet perdu (2 relevés de suite) / revenu, clé USB branchée/retirée (elle fait semblant de regarder, et le
+  dit), manette branchée, **jeu lancé** (Steam/Epic/Riot/GOG/Ubisoft/EA, et tout jeu Unreal ou Unity où qu'il soit :
+  elle file dans un coin), **jeu fermé** après ≥ 10 min (elle demande comment c'était), **2 h sans pause**
+  (elle propose une pause). Gestes + bulles gratuits ; la parole (modèle) seulement pour ce qui compte.
+* **Clics** : un clic = petite réaction ; 3 clics rapides = agacée ; 6 = elle boude 12 s (« Bon. Je boude. »).
+  Posée doucement = contente ; secouée = yeux au ciel ; lancée = « franchement… » à l'atterrissage.
+* **Esquive du curseur** : quand la souris fonce sur son visage, parfois (30 %, toutes les 25 s au plus) elle
+  s'écarte puis te taquine. Jamais en conversation, en mode discret, la nuit ou quand on la tient.
+* **Mode nuit** (23 h → 7 h, réglable `vie.nuit`) : voix −35 %, gestes plus calmes, aucun glitch.
+* **Hub** : nouveaux réglages dans « Vie » (réagir au PC, libérer la carte graphique en jeu) et « Voix »
+  (attente si la phrase n'est pas finie, lui couper la parole), même source de configuration qu'avant.
+
+---
+
+## 3. Audit de l'existant (vérifié dans le code)
+
+Légende : ✅ présent et fonctionnel · 🟡 présent, à améliorer · 🟠 partiel · ❌ absent · ➕ ajouté dans ce lot · ⛔ non pertinent
+
+### A — Idées de Capri Desktop
+
+| Fonction | État | Où / remarque |
+|---|---|---|
+| S'asseoir sur le haut d'une fenêtre | ✅ | `index.ts` `windowsTick` (bords visibles calculés), `settleAfterDrop` |
+| Suivre la fenêtre qui bouge | 🟡 | `perchFollow` : relevé toutes les 1,5 s → suivi saccadé. À faire : hook `SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE)` via koffi |
+| Tomber quand la fenêtre disparaît / est réduite | 🟠 | elle sursaute et **se téléporte** ; pas de vraie chute physique |
+| Glisser-déposer sur un rebord | ✅ | `DragController` + `settleAfterDrop` |
+| Être lancée, rebondir sur les bords | ✅ | `throwCharacter` (élan, friction, rebonds) |
+| Rotation / étirement / images rémanentes / impact pendant le vol | 🟠 | pose « dash » seulement ; pas d'images rémanentes ni d'écrasement à l'impact |
+| Se rattraper sur un rebord en tombant | ❌ | |
+| Marcher sur la barre des tâches | ✅ | `roam.ts` (marche, vol, vrilles) |
+| S'accrocher / se pencher depuis un bord | ✅ | surfaces `edge_left/right`, postures `peek_*` |
+| À l'envers en haut de l'écran | ❌ | |
+| Suivre le curseur du regard | ✅ | `behavior.ts` (`pointer`) + caresses sur la tête |
+| Esquiver le curseur | ➕ | `maybeDodge` |
+| Déplacée sans bloquer les clics | ✅ | hit-test + `setIgnoreMouseEvents(…, forward)` |
+| Téléportation (fragments, éclairs) | ✅ | `teleportFx.ts`, `TeleportController` |
+| Autre écran | 🟡 | « Autre écran » du menu ; ne te suit pas d'un écran à l'autre |
+| Coin discret | ✅ ➕ | téléportation « coin » ; automatique au lancement d'un jeu |
+| Intro au lancement | 🟠 | feuille `arrive.png` présente mais non utilisée |
+| Copies rouge/verte, glitch RGB | 🟠 | post-traitement glitch « slice » ; pas de copies qui se détachent |
+| Gros plans du visage | ❌ | (les scripts `capture-closeups` servent aux docs) |
+| Possession visuelle des fenêtres (A3) | ❌ | priorité 4, pas commencé |
+| Réactions au matériel (A4) | ➕ | CPU, batterie, chargeur, réseau, USB, manette, jeu, longue session. **Non faits** : charge GPU, casque audio |
+| Clic / clics rapides / bouder / déplacer doucement ou brutalement (A5) | ➕ | `onPoke`, réactions au lâcher |
+| Masquer/rappeler au clavier | ✅ | Ctrl+Alt+H (et repli Ctrl+Alt+J) |
+| Mode « petit visage endormi dans un coin » | ❌ | |
+| Cacher en plein écran (jeux, vidéos) | ✅ | `isOtherAppFullscreen` |
+| Menu (A7) | 🟡 | poses, téléportation, écran, vivre sa vie, ne pas déranger, clics, démarrage Windows, hub, quitter. Manquent : taille, mode de déplacement, rappels, voix/volume, réinitialisation |
+| Sommeil / réveil (A8) | ✅ | `sleepAfterMinutes`, états `sleeping` / `returning` |
+| Reprendre une conversation interrompue | ➕ | contexte d'interruption |
+
+### A2.1 / N — qualité du rig et des animations
+
+| Élément | État |
+|---|---|
+| Machine à états de comportement (idle, lookAround, listening, thinking, speaking, reacting, sleeping, action, returning) | ✅ `behavior.ts` |
+| Lissage des poses (interpolation critique) | ✅ `params.ts` `Animator` |
+| Clips à images clés, superposés à la posture | ✅ `clips.ts` (≈60 clips) |
+| Postures tenues selon la surface | ✅ `postures.ts` |
+| Mouvement secondaire (respiration, cheveux, balancement) | 🟡 sinusoïdes continues (`behavior.pose`) → répétitif, c'est le défaut principal |
+| Transitions entre postures | 🟠 lissage générique, pas de transitions dédiées (s'asseoir en 10 étapes, se relever…) |
+| Outil de prévisualisation interactif (pause, vitesse, articulations, comparaison) | 🟠 scripts de capture (`preview-postures`, `pose-sheet`, `face-lab`), pas d'inspecteur interactif |
+
+**Non fait dans ce lot.** Ce travail exige de regarder chaque animation dans le vrai moteur de rendu et de
+comparer avant/après à l'œil : c'est un chantier à part entière (voir § 5).
+
+### B / C / D / E / F / G — personnalité, vie intérieure, événements
+
+| Fonction | État | Où / remarque |
+|---|---|---|
+| Humeurs (B1) | 🟠 | 9 humeurs données par le modèle (`[taquine]`…), persistées, qui changent visage, geste, débit et hauteur de la voix. Pas de vecteur de 13 émotions qui évolue avec les causes |
+| Relation (B2) | 🟠 | `affection` + initiatives ignorées (`inner.py`) → fréquence de ses venues et ton |
+| Jalousie (B3) | 🟠 ➕ | vidéos/jeux/autres apps au premier plan (`RIVALS`) ; ➕ « comment était ton jeu ? » un peu jalouse |
+| Souvenirs évoqués spontanément (B4) | 🟠 | « à suivre » (elle redemande comment s'est passé un événement), souvenir au hasard. Consulter/supprimer : ✅ hub. Modifier : ❌ |
+| Chronologie (B5), objets (G1), souvenirs illustrés (G2), découvertes (G3) | ❌ | |
+| Activités autonomes (C1) | 🟠 | 13 activités selon l'heure, sans durée/progression |
+| Projets à long terme (C2) | ❌ | |
+| Journal (C3) | ✅ | pensées intimes, consultable dans le hub |
+| Curiosité / lecture (C4) | 🟠 | vrais articles (flux RSS publics), partagés ensuite |
+| Moteur d'événements (H1, D1) | ➕ | première version pour les événements du PC |
+| Événements rares, scénarios (D2, D3) | ❌ | |
+| Mode nuit (E3) | ➕ | |
+| Concentration (E4) | 🟡 | « ne pas déranger » (cerveau + avatar) ; coin auto en jeu ➕ |
+| Rappels (F4) | ❌ | aucun outil de rappel dans le cerveau |
+| Tâches en cours (F3) | ✅ | phrase pendant l'action, bordure lumineuse, Échap, confirmation des actions sensibles |
+| Actions guidées (F2), mini-jeux (G5) | ❌ | |
+
+### K — chaîne vocale (avant ce lot)
+
+| Élément | État avant |
+|---|---|
+| Génération en streaming + synthèse phrase par phrase, plusieurs phrases en parallèle, lecture ordonnée | ✅ déjà là (`SentenceSplitter`, `speak`) |
+| Mesures par étape | ❌ → ➕ |
+| Transcription anticipée / fin de phrase adaptative | ❌ → ➕ |
+| Voix progressive à l'intérieur d'une phrase | ❌ → ➕ |
+| Annulation de la génération à l'interruption | ❌ → ➕ |
+| Couper la parole sans le mot d'éveil | ❌ (tout ce qui était entendu pendant qu'elle parlait était jeté comme « écho ») → ➕ |
+| Priorité conversation > tâches de fond | ❌ → ➕ |
+| Vision seulement si nécessaire (K.9) | ✅ déjà : capture seulement quand l'outil `regarder_ecran` est appelé |
+| Ollama : Flash Attention + cache KV q8_0 | ✅ déjà réglé par l'avatar au lancement d'Ollama (mesuré : 5,66 Go au lieu de 6,18, ~48 tok/s) |
+
+---
+
+## 4. Fichiers modifiés / ajoutés
+
+**Cerveau**
+* `brain/capri_brain/perf.py` *(nouveau)* — chronologie des échanges, statistiques, relevés machine.
+* `brain/capri_brain/senses.py` *(nouveau)* — ce qu'elle sent du PC (événements).
+* `brain/capri_brain/voice.py` — transcription anticipée, fin de phrase adaptative, Whisper préchauffé, voix
+  progressive, requêtes doublées, écho, mode nuit.
+* `brain/capri_brain/llm.py` — priorités premier plan / arrière-plan, statistiques, rechargement anticipé, libération GPU.
+* `brain/capri_brain/server.py` — interruption réelle, coupure sans mot d'éveil, mesures, historique par blocs,
+  rappel des souvenirs filtré, moteur d'événements, mode nuit, `CAPRI_DATA` / `CAPRI_PORT`, `GET /api/perf`.
+* `brain/capri_brain/memory.py` — `id` des messages, `count()`.
+* `brain/capri_brain/static/hub.js`, `hub-i18n.js` — nouveaux réglages.
+* `brain/config.toml` — `keep_alive = "4h"`, `end_silence_long`, `pre_transcribe_silence`, `barge_in`,
+  `reactions_pc`, `liberer_gpu_en_jeu`, `nuit`.
+* `brain/tests/test_voice_pipeline.py`, `brain/tests/test_events.py` *(nouveaux, 19 tests)*.
+* `brain/tools/bench_ollama.py`, `brain/tools/bench_conversation.py` *(nouveaux)*.
+
+**Avatar**
+* `body/src/renderer/character/brain.ts` — baisse/remontée de la voix, accusé « premier son joué », nouveaux événements.
+* `body/src/renderer/character/main.ts` — réactions aux événements du PC, coin en jeu, mode nuit, esquive du curseur.
+* `body/src/main/index.ts` — clics répétés / bouderie, réactions au lâcher et à l'atterrissage.
+
+**Aucune dépendance ajoutée.** (psutil, httpx, edge-tts, miniaudio, faster-whisper étaient déjà là.)
+
+---
+
+## 5. Ce qui n'a pas été fait, et pourquoi
+
+* **Qualité des animations (A2.1, N complet)** : remplacer les mouvements secondaires sinusoïdaux, écrire des
+  transitions dédiées (s'asseoir/se lever en plusieurs étapes), squash & stretch à l'impact, images rémanentes,
+  transformation en étoile/éclair, inspecteur interactif. Il faut itérer en regardant le rendu réel à chaque
+  correction : chantier séparé, à mener avec toi.
+* **Suivi fluide des fenêtres** (hook Windows au lieu d'un relevé toutes les 1,5 s), **chute** quand la fenêtre
+  disparaît, **rattrapage** sur un rebord, **à l'envers** en haut de l'écran.
+* **Personnalité (B1/B2/B4/B5)** : vecteur d'émotions persistant, relation multi-dimensions, chronologie,
+  modification des souvenirs dans le hub.
+* **Vie intérieure (C1/C2/C4)** : activités avec durée/progression, projets à long terme, recherche autonome.
+* **Rappels (F4)**, actions guidées (F2), possession des fenêtres (A3), mini-jeux (G5), événements rares (D2/D3),
+  mode « visage endormi », charge GPU et casque audio (A4).
+* **Streaming réel du modèle vocal local** : Kokoro et Chatterbox rendent la phrase d'un coup (pas de vrai
+  streaming : non simulé). La voix edge-tts, elle, est maintenant jouée au fil de l'eau.
+* **Quantification (K.3)** : seule la Q4_K_M est installée ; tester une Q5 demande de télécharger ~1 Go de plus
+  et laisserait moins de place à Whisper. À 48–52 tok/s quand la carte est libre, le modèle n'est pas le goulot :
+  je ne l'ai pas changé.
+
+---
+
+## 6. Tester
+
+```bat
+:: tests du cerveau (aucun micro, aucune carte graphique, aucun réseau, jamais ta vraie mémoire)
+cd brain
+.venv\Scripts\python -m unittest discover -s tests -v
+
+:: tests de l'avatar
+cd body
+npx tsc -p tsconfig.json
+npx vitest run tests/unit --exclude "_ancien/**"
+
+:: vitesse du modèle seul (sa vraie personnalité en prompt)
+cd brain
+.venv\Scripts\python tools\bench_ollama.py
+
+:: latence de bout en bout sur une COPIE de la mémoire (cerveau de test sur le port 8775)
+set CAPRI_DATA=C:\chemin\vers\une\copie\de\data
+set CAPRI_PORT=8775
+.venv\Scripts\python -m capri_brain
+:: puis, dans une autre fenêtre :
+.venv\Scripts\python tools\bench_conversation.py --port 8775 --runs 3
+```
+
+En usage normal, la réactivité réelle se lit dans le journal du cerveau (`brain/data/cerveau.log`, lignes
+« Réactivité ») ou sur `http://127.0.0.1:8765/api/perf` (médiane et 95e centile de chaque étape, mémoire,
+processeur, carte graphique).
+
+À essayer à la voix : parler avec une pause au milieu (« Capri, je voulais te dire que… euh… »), lui couper la
+parole (« attends », « non, plutôt… ») sans dire « Capri », lancer un jeu puis le fermer après 10 min, brancher une
+clé USB, cliquer 6 fois vite sur elle.
+
+---
+
+## 7. Revenir en arrière
+
+Tout est réglable sans toucher au code, dans `brain/config.toml` (ou le hub) :
+
+| Pour retrouver l'ancien comportement | Réglage |
+|---|---|
+| Ne plus pouvoir lui couper la parole sans dire « Capri » | `barge_in = false` |
+| Plus d'attente quand ta phrase n'est pas finie | `end_silence_long = 0.6` |
+| Plus de transcription anticipée | `pre_transcribe_silence = 0` |
+| Modèle déchargé après 30 min | `keep_alive = "30m"` |
+| Plus de réactions au PC / ne pas libérer la carte graphique en jeu | `reactions_pc = false` / `liberer_gpu_en_jeu = false` |
+
+Et pour revenir entièrement à la version précédente : `git checkout 571e6f0 -- brain body` (le dernier commit
+avant ce lot), puis relancer Capri.

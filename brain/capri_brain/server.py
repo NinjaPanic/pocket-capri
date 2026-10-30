@@ -17,6 +17,7 @@ from collections import deque
 import base64
 import json
 import logging
+import os
 import random
 import re
 import time
@@ -33,15 +34,21 @@ from . import actions, eyes, hands, life
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
 from .memory import Memory
+from .perf import Perf, Turn
+from .senses import Event, Senses
 from .persona import (MoodParser, QuestionGate, about_him, build_context, build_extraction_prompt,
                       build_system_prompt, clean_reply, strip_emoji)
 
 PACKAGE = Path(__file__).resolve().parent
 BRAIN = PACKAGE.parent
 PROJECT = BRAIN.parent
+# CAPRI_DATA / CAPRI_PORT : pour tester sur une copie sans jamais toucher à sa vraie mémoire
+DATA = Path(os.environ["CAPRI_DATA"]).resolve() if os.environ.get("CAPRI_DATA") else BRAIN / "data"
 
 with open(BRAIN / "config.toml", "rb") as f:
     CONFIG = tomllib.load(f)
+if os.environ.get("CAPRI_PORT"):
+    CONFIG["server"]["port"] = int(os.environ["CAPRI_PORT"])
 
 log = logging.getLogger("capri")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
@@ -129,6 +136,11 @@ ABOUT_HER = re.compile(r"tu fais quoi|tu faisais|qu'?est-ce que tu fai|ta journ[
                        r"tu (lis|lisais|[ée]coutes)|t'es occup", re.I)
 
 STOP = re.compile(r"^\W*(capri\W*)?(stop|tais[- ]toi|chut|silence|arr[eê]te)\W*$", re.I)
+# Il lui coupe la parole d'un mot : « attends », « non non », « minute »… (pas besoin de dire « Capri »)
+INTERJECT = re.compile(r"\b(attends?|attendez|non|minute|stop|chut|wait|hold on|hang on|no)\b", re.I)
+# Messages qui n'ont pas besoin de ses souvenirs (« ok », « merci », « ça va ? ») : pas de recherche
+TRIVIAL = re.compile(r"^\W*(capri\W*)?(ok(ay)?|oui|non|ouais|merci|cool|super|d'accord|ça va\W*|salut|coucou|bonjour|bonsoir|"
+                     r"hey|yo|lol|mdr|haha\w*|yes|no|thanks?|hi|hello|bye|à plus|bonne nuit|good night)\W*$", re.I)
 
 
 @dataclass
@@ -137,6 +149,37 @@ class Client:
     speaker: bool = False
     segmenter: object | None = None
     tasks: set = field(default_factory=set)
+    draft: tuple | None = None  # (n° de phrase, transcription anticipée en cours)
+    heard_while_speaking: bool = False  # elle parlait quand il a commencé sa phrase
+    ducked: bool = False
+
+
+# Ce qu'elle fait quand elle sent quelque chose sur le PC :
+# (geste de l'avatar, petite bulle FR, bulle EN, ce qu'elle en dit à voix haute — ou None, probabilité, délai mini en s)
+# Les gestes et bulles ne coûtent rien ; la parole passe par le modèle, donc seulement pour ce qui compte.
+REACTIONS = {
+    "cpu_chaud": ("sigh", "Il fait chaud là-dedans…", "It's getting hot in here…",
+                  "Le processeur de son PC tourne à fond depuis plus d'une minute ({cpu} %). Toi qui vis dedans, tu as "
+                  "chaud, tu t'évente : une remarque courte et drôle là-dessus.", 0.5, 1800),
+    "batterie_faible": ("yawn", "Batterie à {pourcent} %… je fatigue.", "Battery at {pourcent}%… I'm fading.",
+                        "La batterie de son PC portable est à {pourcent} % et il n'est pas branché. Tu te sens faiblir : "
+                        "dis-le-lui en une phrase, il doit brancher son chargeur.", 1.0, 1800),
+    "chargeur_branche": ("happy", "Ahh… ça fait du bien.", "Ahh… that's better.", None, 0.7, 300),
+    "chargeur_debranche": ("surprised", "Hé ! Mon jus !", "Hey! My juice!", None, 0.7, 300),
+    "reseau_perdu": ("surprised", "…plus d'Internet ?", "…no more internet?", None, 1.0, 600),
+    "reseau_revenu": ("happy", "Ah, le réseau est revenu.", "Oh, the network's back.", None, 1.0, 600),
+    "usb_branche": ("curious", "Une clé USB ({lecteur}) ? Je regarde… non, j'y touche pas.",
+                    "A USB drive ({lecteur})? Let me see… kidding, I won't touch it.", None, 1.0, 120),
+    "usb_retire": ("wave", "Bye, la clé.", "Bye, little drive.", None, 0.5, 120),
+    "manette_branchee": ("cheer", "Une manette ! On joue à quoi ?", "A controller! What are we playing?", None, 0.8, 1800),
+    "jeu_lance": ("wave", "Bonne partie. Je me fais discrète.", "Have fun. I'll keep quiet.", None, 1.0, 600),
+    "jeu_ferme": (None, None, None,
+                  "Il vient de fermer son jeu « {jeu} » après environ {minutes} minutes de partie. Demande-lui comment "
+                  "c'était, à ta façon (curieuse, un peu jalouse d'avoir été mise de côté), en une ou deux phrases.", 1.0, 0),
+    "longue_session": ("stretch", None, None,
+                       "Il est devant son PC sans vraie pause depuis {heures} heures. Propose-lui une pause, à ta façon "
+                       "(taquine, attentionnée, jamais moralisatrice), en une ou deux phrases.", 1.0, 7200),
+}
 
 
 class Capri:
@@ -145,9 +188,9 @@ class Capri:
         apply_overrides(cfg)
         self.voice_cfg = cfg.get("voice", {})
         self.avatar: dict | None = None  # réglages du corps, envoyés par l'avatar quand il se connecte
-        self.inner = InnerLife(BRAIN / "data" / "vie_interieure.json")  # ce qu'elle vit de son côté
+        self.inner = InnerLife(DATA / "vie_interieure.json")  # ce qu'elle vit de son côté
         self.llm = LLM(cfg)
-        self.memory = Memory(BRAIN / "data" / "capri.db")
+        self.memory = Memory(DATA / "capri.db")
         self.rebuild_system()
         self.mood = self.memory.get_state("mood", "neutre")
         self.clients: dict[WebSocket, Client] = {}
@@ -161,6 +204,14 @@ class Capri:
         self.abort = False  # « stop » / touche panique : arrête ce que ses mains sont en train de faire
         self.action_log: deque = deque(maxlen=200)
         self._tasks: set[asyncio.Task] = set()
+        self.perf = Perf(DATA / "perf.jsonl")
+        self.turn: Turn | None = None  # chronologie de l'échange en cours
+        self.interrupted: tuple[float, str] | None = None  # ce qu'elle disait quand il l'a coupée
+        self._recall_cache: dict[str, list[tuple[int, str]]] = {}
+        self.events: deque[Event] = deque(maxlen=30)  # ce qu'elle a senti sur le PC et pas encore traité
+        self.last_reaction: dict[str, float] = {}
+        self.last_spoken_event = 0.0
+        self.night = False
 
     def spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -218,16 +269,38 @@ class Capri:
     # --- Conversation ---------------------------------------------------------
 
     async def recall(self, text: str) -> list[tuple[int, str]]:
+        # « ok », « merci », « ça va ? » : rien à chercher dans ses souvenirs, autant répondre tout de suite
+        if TRIVIAL.match(text):
+            return []
+        key = re.sub(r"\W+", " ", text.lower()).strip()
+        if (hit := self._recall_cache.get(key)) is not None and self._recall_cache.get("#n") == self.memory.count():
+            return hit
+        t = time.perf_counter()
         try:
             [vector] = await self.llm.embed([f"search_query: {text}"])
         except LLMError as e:
             log.warning("Rappel des souvenirs impossible : %s", e)
             return []
-        return self.memory.search(vector, self.cfg["memory"]["recall"])
+        found = self.memory.search(vector, self.cfg["memory"]["recall"])
+        if self.turn:
+            self.turn.info["rappel_ms"] = round((time.perf_counter() - t) * 1000)
+        if len(self._recall_cache) > 64:
+            self._recall_cache.clear()
+        self._recall_cache[key], self._recall_cache["#n"] = found, self.memory.count()
+        return found
 
     def _history(self) -> list[dict]:
+        """Les derniers échanges. La fenêtre avance par blocs de 8 messages au lieu d'un : le début de la
+        conversation envoyée au modèle reste identique d'un message à l'autre, et Ollama reprend ce qu'il a déjà
+        lu (sans ça, il relisait tout l'historique à chaque phrase : jusqu'à une seconde de plus)."""
+        keep, block = self.cfg["memory"]["history_turns"] * 2, 8
+        recent = self.memory.recent_messages(keep + block)
+        if recent:
+            last = recent[-1]["id"]
+            first = -(-(last - keep - block + 1) // block) * block  # aligné sur un multiple de `block`
+            recent = [m for m in recent if m["id"] >= first]
         messages = []
-        for m in self.memory.recent_messages(self.cfg["memory"]["history_turns"] * 2):
+        for m in recent:
             content = m["content"]
             if m["role"] == "assistant":
                 # On remet le marqueur pour que le modèle garde l'habitude de l'écrire.
@@ -235,17 +308,24 @@ class Capri:
             messages.append({"role": m["role"], "content": content})
         return messages
 
-    async def stop_voice(self) -> None:
-        """Coupe la réponse vocale en cours (nouvelle question, « Capri, stop »…)."""
+    async def stop_voice(self, by_user: bool = False) -> None:
+        """Coupe la réponse en cours, voix ET écriture (nouvelle question, « Capri, stop »…)."""
         self.reply_id += 1
         if self.voice:
+            if by_user and self.voice.is_speaking():
+                last = next((m["content"] for m in reversed(self.memory.recent_messages(2)) if m["role"] == "assistant"), "")
+                self.interrupted = (time.time(), last)
             self.voice.interrupt()
         await self.broadcast({"type": "stop_audio"}, speakers_only=True)
 
-    async def chat(self, text: str, client: str, spoken: bool = False) -> None:
+    async def chat(self, text: str, client: str, spoken: bool = False, turn: Turn | None = None) -> None:
+        # sa réponse en cours s'arrête TOUT DE SUITE (voix et écriture) : sans ça, ta nouvelle question attendait
+        # que le modèle ait fini d'écrire l'ancienne réponse, que plus personne n'écoute
+        await self.stop_voice(by_user=True)
         async with self.lock:
             await self.stop_voice()
             reply_id = self.reply_id
+            self.turn = turn or Turn("voix" if spoken else "texte")
             await self.broadcast({"type": "user", "text": text, "client": client})
             self.inner.talked()
             last_ts = self.memory.last_message_ts()
@@ -253,12 +333,18 @@ class Capri:
             memories = await self.recall(text)
             self.memory.add_message("user", text, client)
 
+            cut = ""
+            if self.interrupted and time.time() - self.interrupted[0] < 90:
+                cut = (f"\nIl vient de te couper la parole pendant que tu disais : « {self.interrupted[1][-220:]} ». "
+                       "Ne reprends pas cette phrase : réponds à ce qu'il dit MAINTENANT. S'il te corrige ou précise "
+                       "(« non, plutôt… », « attends »), tiens-en compte sans t'excuser longuement.")
+            self.interrupted = None
             messages = [
                 {"role": "system", "content": self.system},
                 *history,
                 {"role": "system", "content": build_context(self.mood, [m for _, m in memories], last_ts, spoken, self.name)
                  + "\n" + self.inner.mood_context() + self._question_hint(history)
-                 + self._forgotten_hint(history, text)},
+                 + self._forgotten_hint(history, text) + cut},
             ]
             # Ses mains agissent avant qu'elle parle ; ce qui s'est vraiment passé accompagne le message.
             note, image, prelude = await self.settle_pending(text), None, None
@@ -310,6 +396,7 @@ class Capri:
             wants_long = re.search(r"\b(explique|détaille|liste|code|programme|étapes|tuto|résume|écris[- ]moi|raconte)", text, re.I)
             gate = QuestionGate("?" not in last[-80:] and random.random() < 0.35,
                                 max_sentences=0 if wants_long else 5 if spoken else 7)
+            self.turn.mark("contexte")
             if self.pending:
                 # une action sensible attend son « oui » : la question est fixe, le modèle ne peut pas prétendre l'avoir faite
                 reply = await self._ask_confirmation(reply_id)
@@ -381,6 +468,7 @@ class Capri:
         async with self.lock:
             await self.stop_voice()
             reply_id = self.reply_id
+            self.turn = Turn("initiative")
             last_ts = self.memory.last_message_ts()
             memories = await self.recall(event)
             messages = [
@@ -403,7 +491,7 @@ class Capri:
                 from .voice import SentenceSplitter
                 splitter = SentenceSplitter()
                 speech = asyncio.Queue()
-                self.spawn(self.speak(speech, reply_id))
+                self.spawn(self.speak(speech, reply_id, self.turn))
             self._live = {"id": reply_id, "speech": speech, "splitter": splitter, "parts": []}
         return self._live
 
@@ -459,13 +547,26 @@ class Capri:
             await self.broadcast({"type": "delta", "text": out})
             if splitter:
                 for sentence in splitter.feed(out):
+                    if turn:
+                        turn.mark("premiere_phrase")
                     speech.put_nowait(sentence)
 
+        turn = self.turn
+        interrupted = False
         try:
+            if turn:
+                turn.mark("modele_envoye")
             stream = self.llm.stream(messages)
             if self.voice:
                 self.voice.thinking += 1
             async for chunk in stream:
+                if turn:
+                    turn.mark("premier_token")
+                if reply_id != self.reply_id:
+                    # il a repris la parole : on arrête d'écrire (Ollama arrête aussi de calculer)
+                    interrupted = True
+                    await stream.aclose()
+                    break
                 mood, out = parser.feed(chunk)
                 if mood:
                     await self.set_mood(mood)
@@ -479,11 +580,12 @@ class Capri:
                 if gate and gate.stopped:
                     await stream.aclose()  # elle radotait ou en avait assez dit : on coupe proprement
                     break
-            if rest := parser.flush():
-                await emit(rest)
-            if gate and (tail := gate.flush()):
-                gate = None  # la fin passe telle quelle
-                await emit(tail)
+            if not interrupted:
+                if rest := parser.flush():
+                    await emit(rest)
+                if gate and (tail := gate.flush()):
+                    gate = None  # la fin passe telle quelle
+                    await emit(tail)
         except LLMError as e:
             log.warning("Erreur de réponse : %s", e)
             await self.broadcast({"type": "error", "text": str(e)})
@@ -492,11 +594,20 @@ class Capri:
             if self.voice and self.voice.thinking:
                 self.voice.thinking -= 1
             if speech:
-                for sentence in ([] if leaked else splitter.flush()):
+                for sentence in ([] if leaked or interrupted else splitter.flush()):
                     speech.put_nowait(sentence)
                 speech.put_nowait(None)
+            if turn:
+                turn.mark("fin_generation")
+                turn.info.update({k: v for k, v in self.llm.last_stats.items() if k in ("tok_s", "prompt_ms", "prompt_n", "load_ms")})
+                if not speech:
+                    self.perf.finish(turn)
 
         reply = clean_reply((prelude[0] + " " if prelude else "") + "".join(parts))
+        if interrupted:
+            # ce qu'elle disait quand il l'a coupée : la suite de la conversation le saura
+            self.interrupted = (time.time(), reply)
+            reply = (reply + " …").strip()
         self.memory.add_message("assistant", reply, "capri", self.mood)
         await self.broadcast({"type": "done", "text": reply, "mood": self.mood})
         if self.status != "prête":
@@ -624,36 +735,60 @@ class Capri:
         await self.log_action(name, args, result)
         return actions.note([f"il a confirmé, donc tu l'as fait : {result}"])
 
-    async def speak(self, queue: asyncio.Queue, reply_id: int) -> None:
-        """Chaque phrase part en synthèse dès qu'elle est écrite (plusieurs à la fois), et on les joue dans l'ordre."""
+    async def speak(self, queue: asyncio.Queue, reply_id: int, turn: Turn | None = None) -> None:
+        """Chaque phrase part en synthèse dès qu'elle est écrite (plusieurs à la fois), et on les joue dans l'ordre.
+        Une phrase arrive en un ou plusieurs morceaux : le début se joue pendant que la fin se synthétise."""
         mood = self.mood
         jobs: asyncio.Queue = asyncio.Queue()
+
+        async def produce(sentence: str, how: str, out: asyncio.Queue) -> None:
+            try:
+                async for piece in self.voice.synthesize_pieces(sentence, how):
+                    out.put_nowait(piece)
+            except Exception:
+                log.exception("Synthèse vocale impossible pour : %s", sentence)
+            finally:
+                out.put_nowait(None)
 
         async def launch():
             while (sentence := await queue.get()) is not None:
                 if reply_id == self.reply_id:
                     sentence, how = sentence if isinstance(sentence, tuple) else (sentence, self.mood or mood)
-                    jobs.put_nowait((sentence, asyncio.create_task(self.voice.synthesize(sentence, how))))
+                    out: asyncio.Queue = asyncio.Queue()
+                    jobs.put_nowait((sentence, out, asyncio.create_task(produce(sentence, how, out))))
             jobs.put_nowait(None)
 
         self.spawn(launch())
         seq = 0
-        while (job := await jobs.get()) is not None:
-            sentence, task = job
-            try:
-                result = await task
-            except Exception:
-                log.exception("Synthèse vocale impossible pour : %s", sentence)
-                continue
-            if result is None or reply_id != self.reply_id:
-                continue
-            pcm, rate = result
-            self.voice.scheduled(len(pcm) / 2 / rate)
-            await self.broadcast({
-                "type": "audio", "id": reply_id, "seq": seq, "rate": rate,
-                "text": sentence, "pcm": base64.b64encode(pcm).decode(),
-            }, speakers_only=True)
-            seq += 1
+        try:
+            while (job := await jobs.get()) is not None:
+                sentence, out, task = job
+                first = True
+                while (piece := await out.get()) is not None:
+                    if reply_id != self.reply_id:
+                        break
+                    pcm, rate = piece
+                    if turn and seq == 0:
+                        turn.mark("premier_son_pret")
+                    if first:
+                        self.voice.said(sentence)
+                    self.voice.scheduled(len(pcm) / 2 / rate)
+                    await self.broadcast({
+                        "type": "audio", "id": reply_id, "seq": seq, "rate": rate,
+                        "text": sentence if first else "", "pcm": base64.b64encode(pcm).decode(),
+                    }, speakers_only=True)
+                    first = False
+                    seq += 1
+                if reply_id != self.reply_id:
+                    task.cancel()  # interrompue : les phrases suivantes ne sont plus synthétisées
+        finally:
+            while not jobs.empty():
+                if (job := jobs.get_nowait()) is not None:
+                    job[2].cancel()
+            if turn:
+                # le premier son joué (accusé de l'avatar) arrive juste après : on lui laisse un instant
+                await asyncio.sleep(0.5)
+                self.perf.finish(turn)
 
     # --- Oreilles -------------------------------------------------------------
 
@@ -664,33 +799,83 @@ class Capri:
         if client.segmenter is None:
             from .voice import Segmenter
             client.segmenter = Segmenter(self.voice_cfg)
-        for event, pcm in client.segmenter.feed(data):
+        seg = client.segmenter
+        for event, payload in seg.feed(data):
             if event == "start":
+                client.heard_while_speaking = self.voice.is_speaking()
+                self.llm.user_speaking()
                 self.spawn(self.send(ws, {"type": "hearing"}))
-            else:
-                self.spawn(self.hear(ws, pcm))
+            elif event == "pause":
+                number, pcm = payload
+                client.draft = (number, asyncio.create_task(self._draft(seg, number, pcm)))
+            elif event == "resume":
+                client.draft = None
+            elif event == "end":
+                number, pcm, reusable = payload
+                draft = client.draft[1] if reusable and client.draft and client.draft[0] == number else None
+                client.draft = None
+                self.spawn(self.hear(ws, pcm, draft, time.perf_counter(), client.heard_while_speaking))
+            # elle parle et il se met à parler (assez longtemps pour ne pas être un bruit) : sa voix baisse
+            # tout de suite, avant même de savoir ce qu'il dit ; elle remonte si ce n'était que son propre écho
+            if (event == "voiced" and client.heard_while_speaking and self.voice_cfg.get("barge_in", True)
+                    and not client.ducked):
+                client.ducked = True
+                self.spawn(self.broadcast({"type": "duck"}, speakers_only=True))
 
-    async def hear(self, ws: WebSocket, pcm: bytes) -> None:
-        was_speaking = self.voice.is_speaking()
+    async def _draft(self, seg, number: int, pcm: bytes) -> str:
+        """Transcription anticipée pendant son silence. Si elle finit au milieu d'une idée, on attend la suite."""
+        from .voice import unfinished
         text = await self.voice.transcribe(pcm)
-        if not text:
-            await self.send(ws, {"type": "heard", "text": "", "ignored": True})
-            return
-        if was_speaking and not self.voice.has_wake_word(text):
-            # Sans « Capri », c'est sûrement sa propre voix captée par le micro.
+        if seg.segment == number and seg.paused:
+            seg.extend = bool(text) and unfinished(text)
+            seg.draft_ready = True
+        return text
+
+    async def hear(self, ws: WebSocket, pcm: bytes, draft: asyncio.Task | None = None,
+                   t_end: float | None = None, was_speaking: bool = False) -> None:
+        turn = Turn("voix", t_end)
+        t = time.perf_counter()
+        try:
+            text = await draft if draft else await self.voice.transcribe(pcm)
+        except Exception:
+            text = await self.voice.transcribe(pcm)
+        turn.info.update({"stt_ms": round((time.perf_counter() - t) * 1000), "brouillon": draft is not None,
+                          "parole_ms": round(len(pcm) / 32)})
+        turn.mark("transcrit")
+        client = self.clients.get(ws)
+
+        async def ignore(why: str) -> None:
+            if client and client.ducked:
+                client.ducked = False
+                await self.broadcast({"type": "unduck"}, speakers_only=True)
             await self.send(ws, {"type": "heard", "text": text, "ignored": True})
-            return
+            if text:
+                log.info("Ignoré (%s) : %s", why, text)
+
+        if not text:
+            return await ignore("rien")
+        was_speaking = was_speaking or self.voice.is_speaking()
+        wake = self.voice.has_wake_word(text)
+        if was_speaking and not wake:
+            # sa propre voix captée par le micro (les mots qu'elle vient de dire) : on l'ignore
+            if self.voice.is_echo(text):
+                return await ignore("écho de sa voix")
+            # sinon c'est lui qui lui coupe la parole (« attends », « non, plutôt… », une autre question)
+            short = len(re.findall(r"\w+", text)) < 3
+            if not self.voice_cfg.get("barge_in", True) or (short and not INTERJECT.search(text)):
+                return await ignore("bruit pendant qu'elle parle")
+        if client:
+            client.ducked = False
         if STOP.match(text):
             log.info("Interrompue : %s", text)
-            await self.stop_voice()
+            await self.stop_voice(by_user=True)
             await self.send(ws, {"type": "heard", "text": text, "ignored": True})
             return
         if not self.voice.addressed(text):
-            await self.send(ws, {"type": "heard", "text": text, "ignored": True})
-            return
+            return await ignore("pas pour elle")
         log.info("Entendu : %s", text)
         await self.send(ws, {"type": "heard", "text": text, "ignored": False})
-        await self.chat(text, "voix", spoken=True)
+        await self.chat(text, "voix", spoken=True, turn=turn)
 
     # --- Mémoire --------------------------------------------------------------
 
@@ -704,9 +889,16 @@ class Capri:
                 break
             await asyncio.sleep(0.5)
         try:
-            raw = await self.llm.complete(
-                build_extraction_prompt(user_text, reply, known), temperature=0.1, json_mode=True
-            )
+            # en arrière-plan : attend que la discussion se calme, et s'efface si tu reparles (puis réessaie)
+            for attempt in range(3):
+                try:
+                    raw = await self.llm.complete(
+                        build_extraction_prompt(user_text, reply, known), temperature=0.1, json_mode=True, background=True
+                    )
+                    break
+                except LLMError as e:
+                    if "interrompue" not in str(e) or attempt == 2:
+                        raise
             data = json.loads(raw)
             items = data.get("souvenirs", [])
             for f in data.get("a_suivre") or []:
@@ -752,12 +944,19 @@ class Capri:
         next_talk = time.time() + self._talk_delay(cfg)
         waiting_reply_until = 0.0
         late_night_done = ""
+        senses = Senses() if cfg.get("reactions_pc", True) else None
+        next_sense = 0.0
         while True:
             await asyncio.sleep(2)
             try:
                 now = time.time()
                 if self.status != "prête":
                     continue
+                if senses and now >= next_sense:
+                    next_sense = now + 10
+                    self.events.extend(await asyncio.to_thread(senses.poll, life.idle_seconds()))
+                await self.react_to_events()
+                await self.update_night()
                 # elle vit sa vie même quand personne ne la regarde
                 if now >= next_life:
                     next_life = now + random.uniform(10, 25) * 60
@@ -781,6 +980,8 @@ class Capri:
                     longest_idle = max(longest_idle, idle)
                 elif longest_idle and idle < 10:
                     minutes, longest_idle = int(longest_idle // 60), 0.0
+                    # son modèle a pu être déchargé pendant ton absence : rechargé avant ta première phrase
+                    self.spawn(self.llm.ensure_loaded(self.system))
                     if cfg.get("accueil", True) and not quiet and not busy:
                         await self.initiate(
                             f"Il revient devant son PC après environ {minutes} minutes d'absence. Tu le remarques : "
@@ -804,6 +1005,65 @@ class Capri:
                     waiting_reply_until = now + 600
             except Exception:
                 log.exception("Boucle de vie")
+
+    async def react_to_events(self) -> None:
+        """Le moteur d'événements : pour chaque chose sentie sur le PC, décide si elle réagit, comment et quand.
+        Silence (ne pas déranger) d'abord ; une conversation en cours passe avant ; un événement trop vieux est
+        oublié ; chaque sorte a son délai, et elle ne parle d'elle-même qu'une fois toutes les 4 minutes au plus."""
+        if not self.events or not self.clients:
+            return
+        english = self.voice_cfg.get("langue", "en") == "en"
+        keep: list[Event] = []
+        while self.events:
+            e = self.events.popleft()
+            if e.stale:
+                continue
+            if e.kind == "jeu_lance":
+                await self.broadcast({"type": "discreet", "on": True})  # elle file dans un coin
+                if self.cfg.get("vie", {}).get("liberer_gpu_en_jeu", True):
+                    self.spawn(self._free_gpu_for_game())
+            elif e.kind == "jeu_ferme":
+                await self.broadcast({"type": "discreet", "on": False})
+                self.spawn(self.llm.ensure_loaded(self.system))
+            if actions.quiet():
+                continue  # « ne pas déranger » : rien du tout
+            reaction = REACTIONS.get(e.kind)
+            if not reaction:
+                continue
+            emote, fr, en, spoken, chance, cooldown = reaction
+            if time.time() - self.last_reaction.get(e.kind, 0) < cooldown or random.random() > chance:
+                continue
+            if e.kind == "jeu_ferme" and e.data.get("minutes", 0) < 10:
+                continue  # trois minutes de jeu : pas la peine d'en faire une histoire
+            if self.lock.locked() or (self.voice and self.voice.is_speaking()):
+                keep.append(e)  # il lui parle : elle y repensera juste après, si c'est encore d'actualité
+                continue
+            self.last_reaction[e.kind] = time.time()
+            if emote or fr:
+                await self.broadcast({"type": "notice", "emote": emote or "",
+                                      "text": ((en if english else fr) or "").format(**e.data)})
+            if spoken and time.time() - self.last_spoken_event > 240 and not life.busy():
+                self.last_spoken_event = time.time()
+                self.spawn(self.initiate(spoken.format(**e.data)))
+        self.events.extend(keep)
+
+    async def _free_gpu_for_game(self) -> None:
+        """Un jeu tourne depuis 2 minutes : son modèle quitte la carte graphique (6 Go rendus au jeu).
+        Il revient tout seul quand le jeu se ferme (et dès qu'on lui parle)."""
+        await asyncio.sleep(120)
+        if any(e.kind == "jeu_ferme" for e in self.events) or self.lock.locked():
+            return
+        await self.llm.unload()
+
+    async def update_night(self) -> None:
+        """Le soir tard, elle se fait douce : voix plus basse, gestes calmes, pas d'effets lumineux."""
+        start, end = self.cfg.get("vie", {}).get("nuit", [23, 7])
+        hour = datetime.now().hour
+        night = (start <= hour or hour < end) if start > end else (start <= hour < end)
+        if night != self.night:
+            self.night = night
+            self.voice_cfg["nuit"] = night
+            await self.broadcast({"type": "night", "on": night})
 
     def _talk_delay(self, cfg: dict) -> float:
         """Combien de temps avant qu'elle revienne te parler : plus elle tient à toi, plus elle vient ;
@@ -832,7 +1092,7 @@ class Capri:
                     f"Ta relation avec lui : {self.inner.bond()}\n"
                     "Écris en JSON TA pensée intime du moment, celle de Capri (une ou deux phrases, à la première personne : « je… », et s'il est question de lui, « il » ; sans emoji) "
                     "et ton ressenti en quelques mots : {\"pensee\": \"…\", \"ressenti\": \"…\"}")},
-            ], temperature=0.95, json_mode=True)
+            ], temperature=0.95, json_mode=True, background=True)
             data = json.loads(raw)
             if thought := str(data.get("pensee", "")).strip():
                 self.inner.note(strip_emoji(thought))
@@ -890,9 +1150,11 @@ class Capri:
 
 # Réglages modifiables depuis le hub : section → clés autorisées et leur type.
 EDITABLE = {
-    "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int},
+    "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int, "reactions_pc": bool,
+            "liberer_gpu_en_jeu": bool},
     "mains": {"confirmer": bool},
-    "voix": {"wake_word": bool, "follow_up_seconds": float, "end_silence": float, "tts_speed": float, "tts_pitch": int},
+    "voix": {"wake_word": bool, "follow_up_seconds": float, "end_silence": float, "end_silence_long": float,
+             "barge_in": bool, "tts_speed": float, "tts_pitch": int},
 }
 AVATAR_KEYS = {"character.scale", "character.opacity", "character.alwaysOnTop", "character.clickThrough",
                "character.hideOnFullscreen", "character.glitchEffects", "character.animationIntensity",
@@ -900,7 +1162,7 @@ AVATAR_KEYS = {"character.scale", "character.opacity", "character.alwaysOnTop", 
                "teleport.auto", "teleport.minMinutes", "teleport.maxMinutes", "teleport.effects", "startup.launchOnLogin"}
 
 
-OVERRIDES_FILE = BRAIN / "data" / "reglages.json"
+OVERRIDES_FILE = DATA / "reglages.json"
 
 
 def load_overrides() -> dict:
@@ -965,6 +1227,7 @@ async def lifespan(_app: FastAPI):
     capri.spawn(capri.warmup())
     capri.spawn(capri.load_voice())
     capri.spawn(capri.live())
+    capri.perf.start_sampling()
     yield
     from .voice import stop_local_voice
     stop_local_voice()
@@ -1174,7 +1437,7 @@ async def face_editor_js():
     return FileResponse(PACKAGE / "static" / "editeur.js", media_type="application/javascript")
 
 
-FACE_FILE = BRAIN / "data" / "face.json"
+FACE_FILE = DATA / "face.json"
 
 
 def load_face() -> dict:
@@ -1209,6 +1472,12 @@ async def health():
             "langue": CONFIG.get("toi", {}).get("langue", "en")}
 
 
+@app.get("/api/perf")
+async def perf():
+    """Sa réactivité mesurée : médiane et 95e centile de chaque étape, ressources de la machine."""
+    return capri.perf.summary()
+
+
 @app.get("/api/actions")
 async def action_log():
     return list(capri.action_log)
@@ -1232,6 +1501,7 @@ async def websocket(ws: WebSocket):
     capri.clients[ws] = client
     await capri.send(ws, {
         "type": "hello",
+        "night": capri.night,
         "mood": capri.mood,
         "status": capri.status,
         "voice": capri.voice_status,
@@ -1267,5 +1537,7 @@ async def websocket(ws: WebSocket):
             elif kind == "stop":
                 capri.abort = True
                 await capri.stop_voice()
+            elif kind == "played" and capri.turn and data.get("id") == capri.reply_id and data.get("seq") == 0:
+                capri.turn.mark("premier_son_joue")  # l'avatar a vraiment commencé à jouer sa voix
     finally:
         capri.clients.pop(ws, None)

@@ -129,11 +129,17 @@ function createCharacter() {
   charWin = createCharacterWindow(s, preloadPath(), log);
   lastScale = s.character.scale;
   drag = new DragController(() => charWin, herSize, (moved) => {
-    if (!moved) { cue({ type: 'react', reaction: 'happy' }); return; }
+    if (!moved) { onPoke(); return; }
     perchRect = null;
     perchHwnd = 0;
-    const v = drag.velocity;
-    if (Math.hypot(v.x, v.y) > 900) throwCharacter(v); else settleAfterDrop();
+    const v = drag.velocity, speed = Math.hypot(v.x, v.y);
+    if (speed > 900) throwCharacter(v);
+    else {
+      settleAfterDrop();
+      // posée tout doucement : contente ; secouée en route mais pas lancée : elle lève les yeux au ciel
+      if (speed < 120) cue({ type: 'react', reaction: 'nod' });
+      else if (speed > 600) cue({ type: 'clip', name: 'eye_roll' });
+    }
   });
   // à une échelle d'affichage fractionnaire, Windows décale de quelques pixels les fenêtres sans cadre
   const target = { ...charWin.getBounds(), ...(s.character.position ? { x: s.character.position.x, y: s.character.position.y } : {}) };
@@ -196,6 +202,25 @@ function sendSurface(force = false) {
   cue({ type: 'ledge', ledge, me: b });
 }
 
+/**
+ * Un clic sur elle : une réaction. Plusieurs clics rapides l'agacent, et au-delà elle boude un moment
+ * (elle tourne le dos, ignore les clics suivants pendant quelques secondes, puis passe à autre chose).
+ */
+let pokes: number[] = [];
+let sulkUntil = 0;
+function onPoke() {
+  const now = Date.now();
+  if (now < sulkUntil) return;
+  pokes = [...pokes.filter((t) => now - t < 2500), now];
+  if (pokes.length >= 6) {
+    pokes = [];
+    sulkUntil = now + 12_000;
+    cue({ type: 'clip', name: 'pout' });
+    cue({ type: 'bubble', text: lang === 'fr' ? 'Bon. Je boude.' : "Fine. I'm sulking." });
+  } else if (pokes.length >= 3) cue({ type: 'react', reaction: 'annoyed' });
+  else cue({ type: 'react', reaction: Math.random() < 0.25 ? 'curious' : 'happy' });
+}
+
 /** Lâchée près du haut d'une fenêtre ou de la barre des tâches : elle s'y pose. */
 function settleAfterDrop() {
   if (!charWin || charWin.isDestroyed()) return;
@@ -241,7 +266,10 @@ function throwCharacter(v0: { x: number; y: number }) {
     const f = Math.pow(0.08, dt);
     vx *= f; vy *= f;
     w.setBounds({ x: Math.round(x), y: Math.round(y), width: b.width, height: b.height });
-    if (Math.hypot(vx, vy) < 70) { stopThrow(); settleAfterDrop(); }
+    if (Math.hypot(vx, vy) < 70) {
+      stopThrow(); settleAfterDrop();
+      if (Math.random() < 0.5) cue({ type: 'clip', name: Math.random() < 0.5 ? 'eye_roll' : 'shake_no' }); // « franchement… »
+    }
   }, 16);
 }
 function stopThrow() {

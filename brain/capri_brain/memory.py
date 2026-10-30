@@ -58,11 +58,11 @@ class Memory:
     def recent_messages(self, limit: int) -> list[dict]:
         with self._lock:
             rows = self.db.execute(
-                "SELECT ts, role, content, mood, client FROM messages ORDER BY id DESC LIMIT ?", (limit,)
+                "SELECT id, ts, role, content, mood, client FROM messages ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
         return [
-            {"ts": ts, "role": role, "content": content, "mood": mood, "client": client}
-            for ts, role, content, mood, client in reversed(rows)
+            {"id": i, "ts": ts, "role": role, "content": content, "mood": mood, "client": client}
+            for i, ts, role, content, mood, client in reversed(rows)
         ]
 
     def last_message_ts(self) -> float | None:
@@ -121,6 +121,9 @@ class Memory:
                 return []
             best = np.argsort(-scores)[:k]
             return [(self._ids[i], self._texts[i]) for i in best if scores[i] >= min_score]
+
+    def count(self) -> int:
+        return len(self._ids)
 
     def list_memories(self) -> list[dict]:
         with self._lock:
