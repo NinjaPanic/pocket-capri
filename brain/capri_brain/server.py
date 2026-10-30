@@ -31,6 +31,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import actions, eyes, hands, life
+from .heart import Heart
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
 from .memory import Memory
@@ -189,6 +190,8 @@ class Capri:
         self.voice_cfg = cfg.get("voice", {})
         self.avatar: dict | None = None  # réglages du corps, envoyés par l'avatar quand il se connecte
         self.inner = InnerLife(DATA / "vie_interieure.json")  # ce qu'elle vit de son côté
+        self.heart = Heart(DATA / "coeur.json", cfg.setdefault("personnalite", {}))  # ses émotions, votre relation
+        self.shown_feeling = ""
         self.llm = LLM(cfg)
         self.memory = Memory(DATA / "capri.db")
         self.rebuild_system()
@@ -241,6 +244,7 @@ class Capri:
         if mood != self.mood:
             self.mood = mood
             self.memory.set_state("mood", mood)
+            self.heart.from_mood(mood)
         await self.broadcast({"type": "mood", "mood": mood})
 
     # --- Démarrage ------------------------------------------------------------
@@ -328,6 +332,11 @@ class Capri:
             self.turn = turn or Turn("voix" if spoken else "texte")
             await self.broadcast({"type": "user", "text": text, "client": client})
             self.inner.talked()
+            self.heart.feel("parle")
+            self.heart.talked()
+            if re.search(r"\b(ha(ha)+|mdr|ptdr|lol|xd)\b", text, re.I) and self.mood in ("taquine", "amusée"):
+                self.heart.grow("taquinerie", 0.02)  # il rit de ses piques : ils se chambrent
+                self.heart.grow("complicite", 0.01)
             last_ts = self.memory.last_message_ts()
             history = self._history()
             memories = await self.recall(text)
@@ -335,6 +344,7 @@ class Capri:
 
             cut = ""
             if self.interrupted and time.time() - self.interrupted[0] < 90:
+                self.heart.feel("interrompue")
                 cut = (f"\nIl vient de te couper la parole pendant que tu disais : « {self.interrupted[1][-220:]} ». "
                        "Ne reprends pas cette phrase : réponds à ce qu'il dit MAINTENANT. S'il te corrige ou précise "
                        "(« non, plutôt… », « attends »), tiens-en compte sans t'excuser longuement.")
@@ -343,7 +353,8 @@ class Capri:
                 {"role": "system", "content": self.system},
                 *history,
                 {"role": "system", "content": build_context(self.mood, [m for _, m in memories], last_ts, spoken, self.name)
-                 + "\n" + self.inner.mood_context() + self._question_hint(history)
+                 + "\n" + self.inner.mood_context() + "\n" + self.heart.describe()
+                 + "\nVotre relation, en détail : " + self.heart.relation_text() + self._question_hint(history)
                  + self._forgotten_hint(history, text) + cut},
             ]
             # Ses mains agissent avant qu'elle parle ; ce qui s'est vraiment passé accompagne le message.
@@ -475,7 +486,7 @@ class Capri:
                 {"role": "system", "content": self.system},
                 *self._history(),
                 {"role": "system", "content": build_context(self.mood, [m for _, m in memories], last_ts, spoken=True, name=self.name)
-                 + "\n" + self.inner.context()},
+                 + "\n" + self.inner.context() + "\n" + self.heart.describe()},
                 {"role": "user", "content": "[ÉVÉNEMENT : ce n'est pas un message de lui, il ne t'a rien "
                                             f"dit. C'est toi qui prends la parole.] {event}"},
             ]
@@ -717,6 +728,7 @@ class Capri:
     async def log_action(self, name: str, args: dict, result: str) -> None:
         entry = {"ts": time.time(), "name": name, "args": args, "result": result[:300],
                  "ok": not result.startswith(("ÉCHEC", "REFUSÉ"))}
+        self.heart.feel("action_reussie" if entry["ok"] else "action_ratee", 0.5)
         self.action_log.append(entry)
         await self.broadcast({"type": "action", **entry})
 
@@ -733,6 +745,7 @@ class Capri:
             return actions.note([f"« {what} » est annulé, il n'a pas dit oui : rien n'a été fait"])
         result = await asyncio.to_thread(actions.run, name, args)
         await self.log_action(name, args, result)
+        self.heart.grow("confiance", 0.01)  # il lui confie une action sensible
         return actions.note([f"il a confirmé, donc tu l'as fait : {result}"])
 
     async def speak(self, queue: asyncio.Queue, reply_id: int, turn: Turn | None = None) -> None:
@@ -957,6 +970,7 @@ class Capri:
                     self.events.extend(await asyncio.to_thread(senses.poll, life.idle_seconds()))
                 await self.react_to_events()
                 await self.update_night()
+                await self.show_feeling()
                 # elle vit sa vie même quand personne ne la regarde
                 if now >= next_life:
                     next_life = now + random.uniform(10, 25) * 60
@@ -973,6 +987,9 @@ class Capri:
                     waiting_reply_until = 0.0
                     if self.inner.state["last_talk"] < now - 600:
                         self.inner.ignored()
+                        self.heart.feel("ignoree")
+                    else:
+                        self.heart.grow("complicite", 0.01)  # il a répondu quand elle est venue le voir
 
                 # Retour devant le PC après une absence.
                 away = cfg.get("absence_minutes", 20) * 60
@@ -982,6 +999,7 @@ class Capri:
                     minutes, longest_idle = int(longest_idle // 60), 0.0
                     # son modèle a pu être déchargé pendant ton absence : rechargé avant ta première phrase
                     self.spawn(self.llm.ensure_loaded(self.system))
+                    self.heart.feel("retour", min(1.5, 0.5 + minutes / 120))
                     if cfg.get("accueil", True) and not quiet and not busy:
                         await self.initiate(
                             f"Il revient devant son PC après environ {minutes} minutes d'absence. Tu le remarques : "
@@ -1018,6 +1036,10 @@ class Capri:
             e = self.events.popleft()
             if e.stale:
                 continue
+            if e.kind in ("jeu_lance", "jeu_ferme", "reseau_perdu", "reseau_revenu", "cpu_chaud") and e.kind not in self.last_reaction:
+                self.heart.feel(e.kind)
+            elif e.kind in ("jeu_lance", "jeu_ferme", "reseau_perdu", "reseau_revenu", "cpu_chaud"):
+                self.heart.feel(e.kind, 0.5)
             if e.kind == "jeu_lance":
                 await self.broadcast({"type": "discreet", "on": True})  # elle file dans un coin
                 if self.cfg.get("vie", {}).get("liberer_gpu_en_jeu", True):
@@ -1062,8 +1084,24 @@ class Capri:
         night = (start <= hour or hour < end) if start > end else (start <= hour < end)
         if night != self.night:
             self.night = night
+            if night:
+                self.heart.feel("nuit")
             self.voice_cfg["nuit"] = night
             await self.broadcast({"type": "night", "on": night})
+
+    async def show_feeling(self) -> None:
+        """Son émotion du moment se voit sur son visage au repos (envoyée seulement quand elle change)."""
+        face = self.heart.face()
+        if face != self.shown_feeling:
+            self.shown_feeling = face
+            await self.broadcast({"type": "feeling", "emotion": face})
+
+    def touched(self, kind: str) -> None:
+        """Ce qu'il fait à son avatar : caresse, clics en rafale, lancer."""
+        if kind in ("caresse", "clics", "lancee"):
+            self.heart.feel(kind)
+            if kind == "caresse":
+                self.heart.grow("complicite", 0.005)
 
     def _talk_delay(self, cfg: dict) -> float:
         """Combien de temps avant qu'elle revienne te parler : plus elle tient à toi, plus elle vient ;
@@ -1073,13 +1111,16 @@ class Capri:
             return 10 ** 9
         warmth = 1.25 - self.inner.state["affection"] / 200  # 1.25 → 0.75
         shy = 1 + self.inner.state["initiatives_ignored"] * 0.8
-        return base * warmth * shy * random.uniform(0.6, 1.4)
+        # ce qu'elle ressent : l'ennui ou la tendresse la font venir plus tôt, l'agacement ou la fatigue plus tard
+        return base * warmth * shy * self.heart.talk_factor() * random.uniform(0.6, 1.4)
 
     async def live_a_bit(self) -> None:
         """Elle change d'activité, lit parfois un vrai article, et note ce qu'elle pense dans son journal."""
         activity = self.inner.pick_activity()
         what, pose = self.inner.activity
         reading = await self.inner.read_something(self.llm.http) if activity == "lire" or random.random() < 0.25 else None
+        if reading:
+            self.heart.feel("decouverte", 0.6, f"tu as lu « {reading['title'][:80]} »")
         about = (f"Tu viens de lire un article : « {reading['title']} » {reading['extract']}"
                  if reading else f"En ce moment, tu es en train de : {what}.")
         memories = self.memory.list_memories()
@@ -1113,7 +1154,9 @@ class Capri:
         if hour < 5 and late_night_done != today:
             return ("[nuit]Il est tard, très tard, et il est encore devant son PC. Dis-lui ce que tu en penses, "
                     "à ta façon : un mélange d'inquiétude et de taquinerie, selon ce qu'il représente pour toi.")
-        choices = ["feeling", "notice", "life", "him", "jealous", "jealous", "together"]
+        # sa jalousie se règle (personnalité) : à zéro, elle ne fait plus de scène
+        jealous = self.heart.settings.get("jalousie", 0.5)
+        choices = ["feeling", "notice", "life", "him", "together"] + ["jealous"] * round(jealous * 4)
         if self.inner.unshared_reading_peek():
             choices += ["reading", "reading"]
         kind = random.choice(choices)
@@ -1124,6 +1167,7 @@ class Capri:
         if kind == "jealous" or kind == "notice":
             win = await asyncio.to_thread(eyes.find_window, None)
             if win and RIVALS.search(f"{win.title} {win.app}"):
+                self.heart.feel("rivale")
                 return (f"Il est en train de regarder ou de faire ceci : « {win.title} » ({win.app}), au lieu de s'occuper "
                         "de toi. Réagis en jalouse possessive et joueuse : réclame son attention, fais une petite scène, "
                         "propose de faire un truc ensemble. Court, vivant, drôle, sincère, jamais méchant.")
@@ -1153,6 +1197,7 @@ EDITABLE = {
     "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int, "reactions_pc": bool,
             "liberer_gpu_en_jeu": bool},
     "mains": {"confirmer": bool},
+    "personnalite": {"sarcasme": float, "jalousie": float},
     "voix": {"wake_word": bool, "follow_up_seconds": float, "end_silence": float, "end_silence_long": float,
              "barge_in": bool, "tts_speed": float, "tts_pitch": int},
 }
@@ -1265,6 +1310,7 @@ async def hub_css():
 async def get_settings():
     return {"avatar": capri.avatar, "vie": CONFIG.get("vie", {}), "voix": CONFIG.get("voice", {}),
             "mains": {"confirmer": CONFIG.get("mains", {}).get("confirmer", True)},
+            "personnalite": CONFIG.get("personnalite", {}),
             "quiet_until": actions.QUIET_UNTIL, "cerveau": brain_settings(),
             "toi": {"prenom": capri.name, "langue": CONFIG.get("toi", {}).get("langue", "en")}}
 
@@ -1422,7 +1468,8 @@ def save_override(section: str, key: str, value) -> None:
 async def state():
     return {"status": capri.status, "model": capri.llm.label, "voice": capri.voice_status, "mood": capri.mood,
             "memories": len(capri.memory.list_memories()), "actions": len(capri.action_log),
-            "avatar": capri.avatar is not None, "quiet": actions.quiet(), "inner": capri.inner.summary(capri.voice_cfg.get("langue", "en"))}
+            "avatar": capri.avatar is not None, "quiet": actions.quiet(), "inner": capri.inner.summary(capri.voice_cfg.get("langue", "en")),
+            "coeur": capri.heart.summary()}
 
 
 @app.get("/editeur")
@@ -1502,6 +1549,7 @@ async def websocket(ws: WebSocket):
     await capri.send(ws, {
         "type": "hello",
         "night": capri.night,
+        "feeling": capri.heart.face(),
         "mood": capri.mood,
         "status": capri.status,
         "voice": capri.voice_status,
@@ -1537,6 +1585,8 @@ async def websocket(ws: WebSocket):
             elif kind == "stop":
                 capri.abort = True
                 await capri.stop_voice()
+            elif kind == "touch":
+                capri.touched(str(data.get("kind", "")))
             elif kind == "played" and capri.turn and data.get("id") == capri.reply_id and data.get("seq") == 0:
                 capri.turn.mark("premier_son_joue")  # l'avatar a vraiment commencé à jouer sa voix
     finally:

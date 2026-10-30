@@ -14,7 +14,7 @@ import type { Reaction } from './behavior';
 import { CapriModel, setHairColor, setHairStyle, type HairStyle, type PoseName } from './model';
 import { getFaceConfig, onFaceConfig, setFaceConfig } from './face';
 import { modelPoseFor } from './poseMap';
-import { BrainLink, MOOD_FACE, type BrainEvent } from './brain';
+import { BrainLink, FEELING_FACE, MOOD_FACE, type BrainEvent } from './brain';
 import { Roamer, type Rect } from './roam';
 
 /** Model-requested emotes → validated reactions/clips (the model never touches the renderer directly). */
@@ -101,7 +101,8 @@ const brain = new BrainLink(onBrain, (sentence) => showBubble(sentence));
 onFaceConfig((c) => setHairColor(c.hairColor));
 function onBrain(e: BrainEvent) {
   switch (e.type) {
-    case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; shareSettings(); break;
+    case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; setFeeling(e.feeling); shareSettings(); break;
+    case 'feeling': setFeeling(e.emotion); break;
     case 'night': night = e.on; break;
     case 'notice': // une réaction à ce qui se passe sur le PC : un geste et une petite bulle, sans rien interrompre
       if (dragging || phase !== 'idle' || !replyDone) break;
@@ -114,7 +115,7 @@ function onBrain(e: BrainEvent) {
     case 'heard': phase = e.ignored ? (replyDone ? 'idle' : phase) : 'thinking'; break;
     case 'user': case 'start': phase = 'thinking'; replyDone = false; behavior.wake(); break;
     case 'mood': setMood(e.mood, true); break;
-    case 'done': replyDone = true; if (!brain.speaking) phase = 'idle'; break;
+    case 'done': replyDone = true; if (!brain.speaking) phase = 'idle'; setTimeout(() => { if (replyDone && phase === 'idle') behavior.mood = feelingFace; }, 8000); break;
     case 'error': replyDone = true; phase = 'error'; showBubble(e.text); setTimeout(() => { if (phase === 'error') phase = 'idle'; }, 2500); break;
     case 'stop_audio': if (replyDone) phase = 'idle'; break;
     case 'action': if (e.ok) model.glitchNow('slice', 0.25); break; // she just did something on the PC: one glitch
@@ -133,6 +134,12 @@ function emote(name: string) {
   else if (e?.posture) behavior.setPosture(e.posture);
   else if (e?.react) behavior.react(e.react);
   else if (e?.clip && clipByName(e.clip)) behavior.playClip(e.clip, 'reacting');
+}
+/** Ce qu'elle ressent, au repos ; l'humeur de sa réponse reprend la main quand elle parle. */
+let feelingFace: Partial<Params> = {};
+function setFeeling(emotion?: string) {
+  feelingFace = (FEELING_FACE[emotion ?? ''] ?? {}) as Partial<Params>;
+  if (replyDone && phase === 'idle') behavior.mood = feelingFace;
 }
 function setMood(mood: string, gesture: boolean) {
   const face = MOOD_FACE[mood] ?? MOOD_FACE.neutre;
@@ -280,6 +287,7 @@ function trackPat(x: number, y: number) {
     patTurns = []; patCool = now + 2500;
     model.pat();
     behavior.react('happy');
+    brain.send({ type: 'touch', kind: 'caresse' }); // ça la touche vraiment (son cœur)
   }
 }
 
@@ -390,6 +398,7 @@ api.on('cue', (raw) => {
     case 'remark': behavior.react('wave'); showBubble(c.text); break;
     case 'bubble': showBubble(c.text); break;
     case 'workPose': workPose = c.pose; break;
+    case 'touch': brain.send({ type: 'touch', kind: c.kind }); break;
     case 'teleport': onTeleport(c.phase, c.id, c.effects); break;
     case 'clip': emote(c.name); break;
     case 'connection': break;

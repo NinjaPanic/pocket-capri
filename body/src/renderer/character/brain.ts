@@ -9,7 +9,7 @@
 export const BRAIN_URL = 'ws://127.0.0.1:8765/ws';
 
 export type BrainEvent =
-  | { type: 'hello'; mood: string; status: string; voice: string; face?: Record<string, unknown>; night?: boolean }
+  | { type: 'hello'; mood: string; status: string; voice: string; face?: Record<string, unknown>; night?: boolean; feeling?: string }
   | { type: 'face'; config: Record<string, unknown> }
   | { type: 'status'; status: string }
   | { type: 'voice'; status: string }
@@ -31,7 +31,8 @@ export type BrainEvent =
   | { type: 'stop_audio' }
   | { type: 'notice'; emote: string; text: string } // elle a senti quelque chose sur le PC (jeu, réseau, USB…)
   | { type: 'discreet'; on: boolean } // un jeu commence : elle file dans un coin
-  | { type: 'night'; on: boolean } // tard le soir : gestes calmes, pas d'effets lumineux
+  | { type: 'night'; on: boolean }
+  | { type: 'feeling'; emotion: string } // ce qu'elle ressent vraiment (son cœur), visible au repos // tard le soir : gestes calmes, pas d'effets lumineux
   | { type: 'duck' } // il se met à parler pendant qu'elle parle : sa voix baisse tout de suite
   | { type: 'unduck' }; // ce n'était que l'écho de sa voix : elle remonte
 
@@ -200,6 +201,17 @@ export class BrainLink {
     return Math.sqrt(s / this.level.length);
   }
 }
+
+/** Ses émotions (son cœur) → expression tenue au repos, plus discrète que l'humeur de ses réponses. */
+export const FEELING_FACE: Record<string, Record<string, number>> = {
+  serenite: {}, joie: { mouthSmile: 0.6, squint: 0.2 }, curiosite: { eyeWide: 0.3, headRoll: 0.12 },
+  ennui: { mouthSmile: -0.1, headPitch: 0.15, squint: 0.25 }, fatigue: { squint: 0.45, headPitch: 0.2 },
+  irritation: { squint: 0.55, mouthSmile: -0.4 }, sarcasme: { squint: 0.45, mouthSmile: 0.7, headRoll: 0.1 },
+  surprise: { eyeWide: 0.8, mouthOpen: 0.3 }, fierte: { mouthSmile: 0.8, headPitch: -0.1 },
+  jalousie: { squint: 0.5, mouthSmile: -0.25, headRoll: -0.1 }, tendresse: { mouthSmile: 0.7, squint: 0.3, headRoll: 0.15 },
+  mefiance: { squint: 0.6, mouthSmile: -0.1 }, excitation: { eyeWide: 0.4, mouthSmile: 0.9 },
+  tristesse: { mouthSmile: -0.45, headPitch: 0.2, eyeWide: 0.1 },
+};
 
 /** Ses humeurs → expression du visage tenue pendant qu'elle parle, et petit geste au changement. */
 export const MOOD_FACE: Record<string, { bias: Record<string, number>; clip?: string }> = {

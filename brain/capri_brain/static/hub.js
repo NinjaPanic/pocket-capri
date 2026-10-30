@@ -239,6 +239,10 @@ const SETTINGS = [
     ["reactions_pc", "Réagir à ce qui se passe sur le PC", "jeu lancé, réseau, clé USB, processeur qui chauffe, longue session", "bool"],
     ["liberer_gpu_en_jeu", "Libérer la carte graphique pendant un jeu", "son modèle revient quand le jeu se ferme", "bool"],
   ]],
+  ["Personnalité", "Son caractère avec toi.", "personnalite", [
+    ["sarcasme", "Sarcasme", "0 = douce, 1 = piquante", "range", 0, 1, 0.05],
+    ["jalousie", "Jalousie", "0 = jamais, 1 = très possessive", "range", 0, 1, 0.05],
+  ]],
   ["Mains", "Quand elle pilote ton PC.", "mains", [
     ["confirmer", "Demander avant d'envoyer, acheter, supprimer, fermer", "sinon elle le fait direct (éteindre le PC reste demandé)", "bool"],
   ]],
@@ -457,7 +461,7 @@ async function voiceCard() {
 // ---------------------------------------------------------------- état
 loaders.etat = async () => {
   const s = await api("/api/state");
-  if (s.inner) renderInner(s.inner);
+  if (s.inner) renderInner(s.inner, s.coeur);
   const stats = $("stats");
   stats.replaceChildren();
   for (const [k, v] of [["Cerveau", s.status], ["Modèle", s.model], ["Voix", s.voice], ["Humeur", s.mood], ["Souvenirs", s.memories],
@@ -465,7 +469,10 @@ loaders.etat = async () => {
     const d = el("div", "stat"); d.append(el("b", null, k), el("span", null, String(v))); stats.append(d);
   }
 };
-function renderInner(i) {
+const EMO = { joie: "Joie", curiosite: "Curiosité", ennui: "Ennui", fatigue: "Fatigue", irritation: "Irritation", sarcasme: "Sarcasme",
+  surprise: "Surprise", fierte: "Fierté", jalousie: "Jalousie", tendresse: "Tendresse", mefiance: "Méfiance", excitation: "Excitation", tristesse: "Tristesse" };
+const REL = { familiarite: "Familiarité", confiance: "Confiance", complicite: "Complicité", habitude: "Habitude", taquinerie: "Taquinerie", jalousie: "Jalousie" };
+function renderInner(i, coeur) {
   const box = $("innerCards");
   box.replaceChildren();
   const now = el("div", "card");
@@ -478,6 +485,26 @@ function renderInner(i) {
   bond.append(el("label", null, "Votre lien"), bar, el("output", null, `${i.affection} %`));
   now.append(bond);
   box.append(now);
+  if (coeur) {
+    // ce qu'elle ressent (au-dessus de son niveau de repos) et pourquoi, puis votre relation dimension par dimension
+    const heart = el("div", "card");
+    heart.append(el("h2", null, "Ce qu'elle ressent"), el("p", "sub", "Ses émotions montent quand quelque chose les provoque, puis retombent doucement."));
+    const top = Object.entries(coeur.emotions).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    for (const [k, v] of top) {
+      const r = el("div", "row"), b = el("div", "bond"), f = el("span");
+      f.style.width = `${Math.round(v * 100)}%`; b.append(f);
+      r.append(el("label", null, EMO[k] ?? k), b, el("output", null, coeur.causes[k] ?? ""));
+      heart.append(r);
+    }
+    heart.append(el("h2", null, "Votre relation"));
+    for (const [k, v] of Object.entries(coeur.relation)) {
+      const r = el("div", "row"), b = el("div", "bond"), f = el("span");
+      f.style.width = `${Math.round(v * 100)}%`; b.append(f);
+      r.append(el("label", null, REL[k] ?? k), b, el("output", null, `${Math.round(v * 100)} %`));
+      heart.append(r);
+    }
+    box.append(heart);
+  }
   const list = (title, items, empty, render) => {
     const c = el("div", "card"); c.append(el("h2", null, title));
     const ul = el("ul", "list");

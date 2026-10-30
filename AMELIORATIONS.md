@@ -112,6 +112,24 @@ vient bien de la chaîne vocale, pas de conditions plus favorables.
 * **Hub** : nouveaux réglages dans « Vie » (réagir au PC, libérer la carte graphique en jeu) et « Voix »
   (attente si la phrase n'est pas finie, lui couper la parole), même source de configuration qu'avant.
 
+### 2.3 Lot 2 (31 octobre) — émotions, relation, choix de la voix
+
+* **Son cœur** (`brain/capri_brain/heart.py`, `data/coeur.json`) : 13 émotions (joie, curiosité, ennui, fatigue,
+  irritation, sarcasme, surprise, fierté, jalousie, tendresse, méfiance, excitation, tristesse). Chacune monte
+  seulement quand quelque chose la provoque (ta voix, ton retour, un jeu sans elle, des clics en rafale, une
+  caresse, un lancer, une action réussie ou ratée, Internet coupé, la nuit…), **avec la cause gardée**, puis
+  redescend doucement vers son niveau de repos (demi-vie propre à chacune). Jamais de changement au hasard.
+* Ce qu'elle ressent change : **ce qu'elle dit** (le modèle reçoit « un peu agacée (il t'a cliquée dessus sans
+  arrêt) », à laisser transparaître sans l'annoncer), **son visage au repos**, et **la fréquence de ses venues**
+  (ennui ou tendresse → plus tôt ; agacement, tristesse, fatigue → plus tard).
+* **Relation** à plusieurs dimensions (familiarité, confiance, complicité, habitude, taquinerie, jalousie) qui
+  bougent lentement, et les heures où tu lui parles d'habitude. Aucun mécanisme pour te culpabiliser.
+* **Personnalité réglable** dans le hub : sarcasme et jalousie (0 à 1). À 0, plus de scènes de jalousie.
+* **Hub** (onglet « État ») : ce qu'elle ressent et pourquoi, et votre relation, dimension par dimension.
+* **Voix** — mesure de 15 phrases par voix, PC libre : Denise **0,64 s** médiane, 0 échec ; Éloïse 0,85 s, 0 échec ;
+  Ava (actuelle) **2,85 s**, 1 échec ; Vivienne 3,26 s, 5 échecs. La reprise lente après une interruption (~4,5 s)
+  vient de la même cause : la voix. Changer de voix est ton choix (hub › Réglages › Voix).
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)

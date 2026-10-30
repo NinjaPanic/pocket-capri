@@ -35,6 +35,8 @@ def fake_capri():
     c.voice_cfg, c.cfg, c.voice, c.system = {"langue": "fr"}, {"vie": {"liberer_gpu_en_jeu": False}}, None, ""
     c.lock = asyncio.Lock()
     c.sent, c.said = [], []
+    from capri_brain.heart import Heart
+    c.heart = Heart(Path(tempfile.mkdtemp(prefix="capri-test-")) / "coeur.json")
 
     async def broadcast(msg, speakers_only=False):
         c.sent.append(msg)

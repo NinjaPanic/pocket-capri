@@ -216,6 +216,7 @@ function onPoke() {
     pokes = [];
     sulkUntil = now + 12_000;
     cue({ type: 'clip', name: 'pout' });
+    cue({ type: 'touch', kind: 'clics' });
     cue({ type: 'bubble', text: lang === 'fr' ? 'Bon. Je boude.' : "Fine. I'm sulking." });
   } else if (pokes.length >= 3) cue({ type: 'react', reaction: 'annoyed' });
   else cue({ type: 'react', reaction: Math.random() < 0.25 ? 'curious' : 'happy' });
@@ -251,6 +252,7 @@ function throwCharacter(v0: { x: number; y: number }) {
   let vx = Math.max(-5000, Math.min(5000, v0.x)), vy = Math.max(-5000, Math.min(5000, v0.y));
   let last = Date.now();
   cue({ type: 'react', reaction: 'surprised' });
+  cue({ type: 'touch', kind: 'lancee' });
   cue({ type: 'dash', dir: vx < 0 ? -1 : 1 });
   throwTimer = setInterval(() => {
     const w = charWin;
