@@ -15,7 +15,7 @@ import httpx
 # Services en ligne : nom affiché, adresse de leur API compatible OpenAI, variable d'environnement de la clé, modèle proposé.
 PROVIDERS: dict[str, dict] = {
     "groq": {"label": "Groq", "url": "https://api.groq.com/openai/v1", "env": "GROQ_API_KEY",
-             "model": "meta-llama/llama-4-scout-17b-16e-instruct", "keys": "console.groq.com/keys (gratuit)"},
+             "model": "openai/gpt-oss-120b", "keys": "console.groq.com/keys (gratuit, limité : ~1 message/min, ~40/jour)"},
     "google": {"label": "Google Gemini", "url": "https://generativelanguage.googleapis.com/v1beta/openai", "env": "GEMINI_API_KEY",
                "model": "gemini-2.5-flash", "keys": "aistudio.google.com/apikey (gratuit avec limites)"},
     "openai": {"label": "OpenAI", "url": "https://api.openai.com/v1", "env": "OPENAI_API_KEY",
@@ -203,13 +203,12 @@ class LLM:
             await self.warmup(system_prompt)
 
     async def unload(self) -> None:
-        """Libère la carte graphique (un jeu en a besoin). Rechargé par `ensure_loaded`."""
-        if self.provider != "ollama":
-            return
+        """Libère la carte graphique (un jeu en a besoin, ou elle pense en ligne). Rechargé par `ensure_loaded`.
+        Sans effet si le modèle local n'est pas chargé."""
         try:
             await self.http.post(f"{self.ollama_url}/api/generate",
                                  json={"model": self.ollama["model"], "keep_alive": 0}, timeout=10)
-            log.info("Modèle retiré de la carte graphique pendant le jeu")
+            log.info("Modèle local retiré de la carte graphique")
         except httpx.HTTPError:
             pass
 
@@ -316,6 +315,10 @@ class LLM:
         body = {"model": model, "messages": self._openai_messages(messages), "stream": True, "temperature": temperature}
         # les derniers modèles d'OpenAI veulent « max_completion_tokens »
         body["max_completion_tokens" if self.provider == "openai" else "max_tokens"] = self.max_tokens
+        if "gpt-oss" in model:
+            # modèle qui « réfléchit » avant de répondre : au minimum (plus rapide, et moins de tokens du quota gratuit)
+            body["reasoning_effort"] = "low"
+            body["max_tokens"] = self.max_tokens + 600  # sa réflexion compte dans la limite
         if json_mode and self.provider != "anthropic":
             body["response_format"] = {"type": "json_object"}
         if tools:

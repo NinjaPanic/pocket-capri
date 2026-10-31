@@ -38,7 +38,8 @@ keep_alive = "4h"
 # Clé gratuite sur https://console.groq.com/keys
 # Tu peux aussi la mettre dans la variable d'environnement GROQ_API_KEY.
 api_key = ""
-model = "llama-3.3-70b-versatile"
+# (les modèles gratuits changent : ceux de ta clé sont listés sur console.groq.com)
+model = "openai/gpt-oss-120b"
 
 [voice]
 enabled = true

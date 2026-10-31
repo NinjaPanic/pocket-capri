@@ -267,6 +267,9 @@ class Capri:
 
     async def warmup(self) -> None:
         try:
+            if self.llm.provider != "ollama":
+                # elle pense en ligne : son modèle local (5,7 Go de carte graphique) ne doit pas rester chargé
+                await self.llm.unload()
             await self.llm.warmup(self.system)
             await self.set_status("prête")
             log.info("Modèle chargé : %s", self.llm.label)
@@ -1809,6 +1812,8 @@ async def put_settings(request: Request):
         await capri.set_status(capri.status)  # le hub et l'avatar voient le nouveau modèle
         if CONFIG["llm"]["provider"] == "ollama" and key in ("provider", "ollama_model"):
             capri.spawn(capri.warmup())
+        elif key == "provider":
+            capri.spawn(capri.llm.unload())  # passée en ligne : la carte graphique et la mémoire sont libérées
         return {"ok": True, "model": capri.llm.label}
     if section == "toi" and key == "langue" and value in ("fr", "en"):
         CONFIG.setdefault("toi", {})["langue"] = value
