@@ -4,6 +4,7 @@ import { Mat, prng } from './geometry';
 import { clipOutFace, drawFace, type FaceConfig } from './face';
 import { PALETTE as C } from './palette';
 import type { Params } from './params';
+import { drift } from './motion';
 
 /**
  * Capri's drawn body cut into articulated pieces (tools/rig_sprite.py): each bone holds the vector
@@ -97,6 +98,14 @@ export class Rig {
     return low;
   }
 
+  /** Every bone's joint (pivot) and tip as last drawn, in sprite px (inspector overlay). */
+  joints(): { name: string; parent: string | null; pivot: [number, number]; end: [number, number] }[] {
+    return RIG.bones.filter((b) => this.world.has(b.name)).map((b) => {
+      const m = this.world.get(b.name)!;
+      return { name: b.name, parent: b.parent, pivot: m.apply(b.pivot), end: m.apply(b.end) };
+    });
+  }
+
   /** Repaint only the hair (to fall in front of the face). */
   drawHair(ctx: CanvasRenderingContext2D, paintHair: (p: Path2D) => void) {
     const b = RIG.bones.find((x) => x.name === 'hair')!;
@@ -156,7 +165,7 @@ export const POSE_KEY = (bone: string) => `p_${bone}` as const;
  * her live face on the head, then the hair repainted over the face. `base` maps sprite px to screen px
  * (mirroring included, flip = -1).
  */
-export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, flip: number, p: Params, t: number, F: FaceConfig) {
+export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, flip: number, p: Params, t: number, F: FaceConfig, debug?: { base?: Mat }) {
   const basePose: Pose = {};
   for (const name of BONE_NAMES) basePose[name] = (F as unknown as Record<string, number>)[POSE_KEY(name)] ?? 0;
   const { pose, stretch } = poseFromParams(p, t, basePose);
@@ -168,6 +177,7 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
   const seat = low + (rig.place('thighL', HIP[0], HIP[1]).y + SEAT_DEPTH - low) * onEdge;
   const drop = restLow(rig, basePose, F.headScale ?? 1) - seat;
   const base = base0.translate(0, drop);
+  if (debug) debug.base = base;
   const colour: Record<string, string> = { violet: C.violet, crimson: F.hairColor, ink: C.ink, green: F.maskColor };
   ctx.save();
   ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
@@ -210,19 +220,20 @@ export function poseFromParams(p: Params, t: number, base: Pose): { pose: Pose; 
   const pose: Pose = { ...base };
   const add = (k: string, v: number) => { pose[k] = (pose[k] ?? 0) + v; };
   // body: lean and sway, breathing
-  add('torso', deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + Math.sin(t * 1.6) * 0.6 * p.breathe);
+  // (drifting noise, not sinusoids: the small life in the body never loops)
+  add('torso', deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + (p.breathe - 0.5) * 1.2);
   // head: roll, a little nod
   add('head', deg(p.headRoll) * 0.9 + p.headPitch * 8);
   // hair: sways, streams behind a dash
-  add('hair', Math.sin(t * 1.15) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
+  add('hair', drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
   // black arm (left of screen): raise lifts it over the head, spread flings it out
   // au repos, le dessin d'origine tient ce bras écarté : on le ramène le long du corps comme l'autre
   // (−30°), et le lever part de là (125° au lieu de 95° pour arriver au même endroit)
-  add('upperArmL', ARM_L_REST + p.armLRaise * 125 + p.armSpread * 60 + Math.sin(t * 0.9) * 1.5);
+  add('upperArmL', ARM_L_REST + p.armLRaise * 125 + p.armSpread * 60 + drift(t * 0.14, 32) * 1.5);
   add('forearmL', p.armLRaise * 35 - p.armSpread * 10);
   add('handL', p.armLRaise * 10);
   // pink arm (right of screen): raise lifts it up and out, wave swings the forearm
-  add('upperArmR', -p.armRRaise * 140 - p.armSpread * 70 + Math.sin(t * 0.8 + 1) * 1.5);
+  add('upperArmR', -p.armRRaise * 140 - p.armSpread * 70 + drift(t * 0.13, 33) * 1.5);
   add('forearmR', -p.armRRaise * 25 + p.armRWave * 32 + p.armSpread * 10);
   add('handR', p.armRWave * 12);
   // legs, seen from the front and always at full length (never squashed): the hip swings the knee out

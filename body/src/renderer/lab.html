@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capri — inspecteur d'animation</title>
+  <style>
+    :root { color-scheme: dark; --bg: #110e18; --panel: #1a1524; --line: #2e2640; --text: #e6dff5; --dim: #8a80a6; --green: #22f27a; --pink: #ff2e7e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; }
+    header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+    header h1 { font-size: 14px; margin: 0 8px 0 0; color: var(--green); letter-spacing: .02em; }
+    fieldset { display: flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin: 0; }
+    legend { color: var(--dim); font-size: 11px; padding: 0 4px; }
+    select, button, input { font: inherit; color: var(--text); background: #241d33; border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+    button { cursor: pointer; } button:hover { border-color: var(--green); }
+    #clock { font-variant-numeric: tabular-nums; color: var(--dim); min-width: 5em; }
+    main { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; }
+    .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .pane h2 { margin: 0 0 6px; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+    .stage { background: repeating-conic-gradient(#1c1727 0 25%, #191423 0 50%) 0 0 / 24px 24px; border-radius: 6px; line-height: 0; }
+    .side { width: 270px; display: flex; flex-direction: column; gap: 8px; }
+    .info div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dashed #2a2238; padding: 2px 0; }
+    .info span { color: var(--dim); } .info b { font-weight: 600; text-align: right; }
+    .graph { width: 270px; height: 240px; background: #141019; border-radius: 6px; }
+    .keys { color: var(--dim); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Capri · inspecteur</h1>
+    <fieldset><legend>Lecture</legend>
+      <button id="pause">⏸ Pause</button><button id="step" title="Image suivante (→)">⏭ Image</button>
+      <input id="speed" type="range" min="0.05" max="2" step="0.05" value="1" /><span id="speedv">×1.00</span><span id="clock">0.00 s</span>
+    </fieldset>
+    <fieldset><legend>Situation</legend>
+      <select id="state"><option value="idle">sa vie (repos)</option><option value="listening">écoute</option><option value="thinking">réfléchit</option><option value="speaking">parle</option><option value="sleeping">dort</option></select>
+      <select id="surface"><option>taskbar</option><option>window</option><option>air</option><option>edge_left</option><option>edge_right</option></select>
+      <button id="facing">⇄ Sens</button>
+    </fieldset>
+    <fieldset><legend>Posture</legend><select id="posture"></select></fieldset>
+    <fieldset><legend>Transition A → B</legend>
+      <select id="from"></select>→<select id="to"></select>
+      <select id="how"><option value="">normale</option><option value="land">atterrissage (rebord)</option><option value="stop">arrêt en l'air</option></select>
+      <button id="trPlay">▶ Jouer</button>
+    </fieldset>
+    <fieldset><legend>Clip</legend><select id="clip"></select><button id="clipPlay">▶</button></fieldset>
+    <fieldset><legend>Élan</legend><button id="throw">Lancer + choc</button>
+      <label><input id="ghosts" type="checkbox" checked /> rémanence</label></fieldset>
+    <fieldset><legend>Affichage</legend><label><input id="joints" type="checkbox" checked /> articulations</label></fieldset>
+  </header>
+  <main>
+    <section class="pane" id="paneA">
+      <div><h2>A <select id="verA"><option value="new" selected>nouvelle version</option><option value="old">ancienne version</option></select></h2><div class="stage"></div></div>
+      <div class="side"><div class="info"></div><canvas class="graph" width="540" height="480"></canvas></div>
+    </section>
+    <section class="pane" id="paneB">
+      <div><h2>B <select id="verB"><option value="new">nouvelle version</option><option value="old" selected>ancienne version</option></select></h2><div class="stage"></div></div>
+      <div class="side"><div class="info"></div><canvas class="graph" width="540" height="480"></canvas></div>
+    </section>
+  </main>
+  <p class="keys" style="padding:0 16px 16px">Espace : pause · → : image suivante · les deux panneaux partent des mêmes tirages au hasard : seule la version change.</p>
+  <script src="lab.js"></script>
+</body>
+</html>

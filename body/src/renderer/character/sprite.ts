@@ -5,6 +5,7 @@ import { clipOutFace, drawFace, getFaceConfig, setFaceOutline } from './face';
 import { PALETTE as C } from './palette';
 import { Rig, drawRigged, flakePattern } from './rig';
 import type { Params } from './params';
+import { noise1 } from './motion';
 
 /**
  * Capri's body drawn from the hand-drawn sprite sheets of lachydotmcg/capri-desktop
@@ -63,6 +64,11 @@ export class SpriteBody {
   private paths = new Map<string, Map<VClass, Path2D>>();
   private rig = new Rig();
   ready = false;
+  /**
+   * What was drawn last (inspector): the sprite→screen matrix, the sheet and frame, and on the
+   * articulated body every joint in sprite px.
+   */
+  debug: { base: Mat; sheet: SheetName; frame: number; joints?: ReturnType<Rig['joints']> } = { base: new Mat(), sheet: 'idle', frame: 0 };
   /** Draw the vectorised body (crisp) rather than the bitmap sheets. */
   vector = true;
 
@@ -206,11 +212,20 @@ export class SpriteBody {
       paintHair(path); ctx.restore();
     };
     const flip = inp.facing < 0 ? -1 : 1;
-    const bob = p.bodyY * 0.6 + (inp.perched || inp.grounded ? 0 : Math.sin(this.t * 1.1) * 2);
+    const bob = p.bodyY * 0.6 + (inp.perched || inp.grounded ? 0 : noise1(this.t * 0.21, 41) * 2);
     // on the seated drawing her bottom (not her feet) rests on the ledge: her legs hang over its edge
     const seatDrop = this.sheet === 'perch' ? PERCH_SEAT_DROP : 0;
     const ox = W / 2 + p.bodyX * 0.5, oy = seatY - ((this.sheet === 'walk' && this.walkFeet.get(`walk:${frame}`)) || FEET[this.sheet]) * k + seatDrop * k + bob;
     let base = new Mat().translate(ox, oy).scale(flip * k, k).translate(-info.frameW / 2, 0);
+    // squash & stretch (landing, bouncing off a screen edge), volume kept: flatter is wider. On a ledge
+    // her feet stay planted; in the air she squashes around her middle
+    const q = clamp(p.squashY, -1, 1), r = clamp(p.squashX, -1, 1);
+    if (Math.abs(q) + Math.abs(r) > 0.002) {
+      const sx = (1 + q * 0.16) * (1 - r * 0.3), sy = (1 - q * 0.22) * (1 + r * 0.18);
+      const px = ox, py = inp.perched || inp.grounded ? seatY : seatY - H * 0.3;
+      base = new Mat().translate(px, py).scale(sx, sy).translate(-px, -py).mul(base);
+    }
+    this.debug = { base, sheet: this.sheet, frame };
     if (inp.spin) {
       // she turns around her middle, a little smaller mid-turn so her hair stays inside the window
       const cx = W / 2, cy = oy + info.frameH * k * 0.5, sc = 1 - 0.28 * Math.abs(Math.sin(inp.spin));
@@ -219,7 +234,8 @@ export class SpriteBody {
     // everyday life (standing, talking, gestures) on the articulated body; the special drawn sheets
     // (sleep, dangle, glitch, walk, dance…) keep their hand-drawn frames
     if (F.skeleton >= 0.5 && this.sheet === 'idle') {
-      drawRigged(ctx, this.rig, base, flip, p, this.t, F);
+      drawRigged(ctx, this.rig, base, flip, p, this.t, F, this.debug);
+      this.debug.joints = this.rig.joints();
       return true;
     }
     ctx.save();

@@ -31,14 +31,15 @@ export interface RoamOutput {
 }
 
 export interface RoamActions {
-  posture(name: PostureName): void;
+  /** `how`: she arrives from a flight ('land' on a ledge, 'stop' in mid-air), played as a landing. */
+  posture(name: PostureName, how?: 'land' | 'stop'): void;
   clip(name: string): void;
   teleport(): void;
   land(): void; // arrivée d'un vol : se poser sur ce qu'il y a sous ses pieds
 }
 
 type Mode = { kind: 'rest'; until: number } | { kind: 'walk'; toX: number; dir: -1 | 1 }
-  | { kind: 'fly'; to: { x: number; y: number }; dir: -1 | 1; then?: PostureName; roll?: number }
+  | { kind: 'fly'; to: { x: number; y: number }; dir: -1 | 1; then?: PostureName; roll?: number; ground: boolean }
   | { kind: 'spin'; t: number; dur: number; turns: number; dir: -1 | 1 };
 
 const WALK_SPEED = 70; // DIP/s
@@ -110,7 +111,7 @@ export class Roamer {
     // vol : accélère au départ, freine à l'arrivée
     const m = this.mode;
     const dx = m.to.x - me.x, dy = m.to.y - me.y, dist = Math.hypot(dx, dy);
-    if (dist < 4) { this.act.land(); this.restAfterMove(w, m.then); return out; }
+    if (dist < 4) { this.act.land(); this.restAfterMove(w, m.then, m.ground ? 'land' : 'stop'); return out; }
     // de temps en temps, une vrille en plein vol
     if (m.roll === undefined && dist > 300 && this.random() < dt * 0.25) m.roll = 0;
     if (m.roll !== undefined && m.roll < 0.9) {
@@ -123,7 +124,11 @@ export class Roamer {
     const k = Math.min(dist, speed * dt) / dist;
     out.step.dx = this.take('x', dx * k);
     out.step.dy = this.take('y', dy * k);
-    out.pose = { lean: m.dir * 0.45, hairStream: -m.dir, bodyRot: m.dir * 0.08, float: 1, hairWind: 1 };
+    // braking for the last stretch: she straightens up (anticipation of the landing), and over a ledge her
+    // legs reach down for it
+    const a = Math.min(1, dist / 160);
+    out.pose = { lean: m.dir * 0.45 * (0.25 + 0.75 * a), hairStream: -m.dir, bodyRot: m.dir * 0.08 * a, float: 1, hairWind: 1 };
+    if (m.ground && a < 1) Object.assign(out.pose, { thighL: -14 * a, thighR: -6 * a, kneeL: 8 + 54 * a, kneeR: 12 + 62 * a, armSpread: 0.35 + 0.15 * (1 - a) });
     return out;
   }
 
@@ -135,11 +140,11 @@ export class Roamer {
     return whole;
   }
 
-  private restAfterMove(w: RoamWorld, then?: PostureName) {
+  private restAfterMove(w: RoamWorld, then?: PostureName, how?: 'land' | 'stop') {
     this.mode = { kind: 'rest', until: performance.now() + 4000 + this.random() * 9000 };
     // arrivée : elle s'installe dans une position qui va avec l'endroit (celle demandée, si on lui a dit de s'asseoir)
-    const s = w.ledge ? (w.surface === 'window' ? 'window' : 'taskbar') : 'air';
-    this.act.posture(then ?? this.pick(posturesFor(s as Surface)));
+    const s = how === 'land' ? (w.surface === 'window' ? 'window' : 'taskbar') : how === 'stop' ? 'air' : w.ledge ? (w.surface === 'window' ? 'window' : 'taskbar') : 'air';
+    this.act.posture(then ?? this.pick(posturesFor(s as Surface)), how);
   }
 
   private decide(w: RoamWorld) {
@@ -205,7 +210,7 @@ export class Roamer {
     to.x = Math.round(Math.max(work.x - me.width * 0.2, Math.min(work.x + work.width - me.width * 0.8, to.x)));
     to.y = Math.round(to.y);
     if (Math.hypot(to.x - me.x, to.y - me.y) < 40) { if (then) this.act.posture(then); return; }
-    this.mode = { kind: 'fly', to, dir: to.x >= me.x ? 1 : -1, then };
+    this.mode = { kind: 'fly', to, dir: to.x >= me.x ? 1 : -1, then, ground: landing !== null };
     this.act.posture('fly');
   }
 

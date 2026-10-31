@@ -14,10 +14,12 @@ await Promise.all([
   build({ ...common, entryPoints: [path.join(root, 'src/main/index.ts')], outfile: path.join(out, 'main/index.js'), platform: 'node', format: 'cjs', external: ['electron', 'koffi'] }),
   build({ ...common, entryPoints: [path.join(root, 'src/preload/preload.ts')], outfile: path.join(out, 'preload/preload.js'), platform: 'node', format: 'cjs', external: ['electron'] }),
   build({ ...common, entryPoints: { character: path.join(root, 'src/renderer/character/main.ts')}, outdir: path.join(out, 'renderer'), platform: 'browser', format: 'iife' }),
+  // the animation inspector (npm run lab): development builds only, never packaged
+  ...(prod ? [] : [build({ ...common, entryPoints: { lab: path.join(root, 'src/renderer/lab/lab.ts') }, outdir: path.join(out, 'renderer'), platform: 'browser', format: 'iife' })]),
   // the face editor is served by her Python brain (/editeur), next to the chat page
   build({ ...common, sourcemap: false, entryPoints: [path.join(root, 'src/editor/main.ts')], outfile: path.join(root, '..', 'brain', 'capri_brain', 'static', 'editeur.js'), platform: 'browser', format: 'iife' }),
 ]);
-for (const f of ['character.html']) {
+for (const f of prod ? ['character.html'] : ['character.html', 'lab.html']) {
   const src = path.join(root, 'src/renderer', f);
   if (fs.existsSync(src)) fs.copyFileSync(src, path.join(out, 'renderer', f));
 }
