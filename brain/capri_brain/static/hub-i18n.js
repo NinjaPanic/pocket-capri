@@ -74,7 +74,7 @@ const EN = {
   "Sa voix": "Her voice",
   "La voix naturelle est bien plus humaine (gratuite, sans clé, mais elle passe par Internet : les phrases qu'elle dit sont envoyées à Microsoft). Sans Internet, elle repasse toute seule sur la voix locale.":
     "The natural voice sounds far more human (free, no key, but online: what she says is sent to Microsoft). Without internet she switches to the local voice by herself.",
-  "Naturelle en ligne (Microsoft)": "Natural, online (Vivienne…)", "Naturelle sur ton PC (Chatterbox)": "Natural, on your PC (Chatterbox)",
+  "Naturelle en ligne (Microsoft)": "Natural, online (Microsoft)", "Naturelle sur ton PC (Chatterbox)": "Natural, on your PC (Chatterbox)",
   "Basique sur ton PC": "Basic, on your PC", "Moteur": "Engine", "Voix naturelle": "Natural voice", "Écouter": "Listen", "Tester": "Test",
   "Voix locale prête.": "Local voice ready.",
   "Voix locale en cours de chargement (une vingtaine de secondes) : la voix basique parle en attendant.": "Local voice loading (about twenty seconds): the basic voice speaks meanwhile.",
