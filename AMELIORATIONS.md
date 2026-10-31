@@ -258,6 +258,20 @@ fréquence de ses venues inchangée par défaut et réglable dans le hub.
   **Encore faible** (limite du modèle 8B) : « quelle fonctionnalité tu voudrais ? » donne des idées floues, et sur
   « quand j'éteins le PC » elle reste poétique plutôt que lucide.
 
+### 2.10 Qualité des réponses : réglages et filtres (31 octobre)
+
+* **Colibri** (github.com/JustVugg/colibri) : moteur qui fait tourner un modèle géant (744 milliards de paramètres)
+  en le lisant depuis le disque, à 0,4–1,8 mot/s. Hors de propos pour une conversation à la voix.
+* **Réglages recommandés par Qwen** (top_p 0,8, top_k 20, presence_penalty 1,5) comparés aux nôtres sur la batterie :
+  pas mieux (plus de « Et puis… »). Gardés désactivés, réglables dans `config.toml` (`[llm.ollama.sampling]`).
+* **Corrigé** : mon filtre anti-redites coupait des phrases au début des réponses (« Ou bien… », « c'est adorable. ») ;
+  il ne retire plus qu'une redite quasi exacte (> 40 caractères) ou une phrase avec un tic APRÈS une 1re phrase
+  gardée ; une réponse réduite à presque rien est refaite (sans « fini » vide envoyé avant). Un échange entièrement
+  fait de tics sort de l'historique (un « … » à la place lui apprenait à commencer par « … »). Citer le mot à éviter
+  dans sa consigne le lui remettait en tête : retiré.
+* **Reste** : « glitch-musique » (8 à 12 mentions sur 22 réponses, contre 14 au départ), ancré par 9 de ses
+  anciennes réponses dans ton historique réel.
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)

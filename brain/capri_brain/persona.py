@@ -272,11 +272,14 @@ class QuestionGate:
             self.stopped = True
             return ""
         self.seen.add(key)
-        if len(key) > 14 and any(_similar(key, old) for old in self.already):
-            self.dropped += 1  # déjà dite récemment : on la saute, la suite de la réponse continue
+        # une phrase longue reprise presque mot pour mot d'une réponse récente : sautée. (Les tics de mots, eux, sont
+        # retirés de l'historique en amont : couper des phrases au milieu d'une réponse la rendait incohérente.)
+        if len(key) > 40 and any(_similar(key, old) for old in self.already):
+            self.dropped += 1
             return ""
-        if self.tics and has_tic(sentence, self.tics):
-            self.dropped += 1  # un de ses tics de mots (une réponse vidée est régénérée, jamais muette)
+        # un tic de mots (« glitch-musique »…) : la phrase saute, mais jamais la première (sinon il restait des bouts
+        # de phrase incohérents en début de réponse)
+        if self.tics and self.sentences > 0 and has_tic(sentence, self.tics):
             return ""
         if self.max and self.sentences >= self.max:
             self.stopped = True

@@ -25,6 +25,15 @@ num_ctx = 8192
 #  d'avance quand tu reviens devant le PC, et tout s'éteint quand tu quittes Capri.)
 keep_alive = "4h"
 
+# Échantillonnage (essais du 31/10 sur la batterie de conversations, tools/test_conversation.py) : les réglages
+# recommandés par Qwen (top_p 0.8, top_k 20, repeat_penalty 1.0, presence_penalty 1.5) n'ont pas fait mieux que les
+# nôtres (plus de « Et puis… »). Pour en essayer d'autres, décommente et ajuste :
+# [llm.ollama.sampling]
+# top_p = 0.8
+# top_k = 20
+# repeat_penalty = 1.0
+# presence_penalty = 1.5
+
 [llm.groq]
 # Clé gratuite sur https://console.groq.com/keys
 # Tu peux aussi la mettre dans la variable d'environnement GROQ_API_KEY.

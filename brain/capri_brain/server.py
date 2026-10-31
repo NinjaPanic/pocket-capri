@@ -328,7 +328,13 @@ class Capri:
             if m["role"] == "assistant" and (tics or self.word_tics):
                 kept = [s for s in re.split(r"(?<=[.!?…])\s+", content)
                         if not any(_similar(_key(s), t) for t in tics) and not has_tic(s, self.word_tics)]
-                content = " ".join(kept).strip() or "…"
+                content = " ".join(kept).strip()
+                if not content:
+                    # sa réponse n'était faite que de tics : l'échange entier sort de l'historique (un « … » à la
+                    # place lui apprenait à commencer ses réponses par « … »)
+                    if messages and messages[-1]["role"] == "user":
+                        messages.pop()
+                    continue
             if m["role"] == "assistant":
                 # On remet le marqueur pour que le modèle garde l'habitude de l'écrire.
                 content = f"[{m['mood'] or 'neutre'}] {strip_emoji(content)}"
@@ -458,14 +464,15 @@ class Capri:
             chatty = self._chatty()
             gate = QuestionGate("?" not in last[-80:] and random.random() < 0.15 + 0.4 * chatty,
                                 max_sentences=0 if wants_long else round(3 + 4 * chatty) if spoken else 7,
-                                already_said=self._recent_replies(30))
+                                already_said=self._recent_replies(8))
             self.turn.mark("contexte")
             if self.pending:
                 # une action sensible attend son « oui » : la question est fixe, le modèle ne peut pas prétendre l'avoir faite
                 reply = await self._ask_confirmation(reply_id)
             else:
-                reply = await self._respond(messages, reply_id, gate, prelude)
-                if reply is None and gate.dropped and reply_id == self.reply_id:
+                reply = await self._respond(messages, reply_id, gate, prelude, final=False)
+                # une réponse vide ou réduite à un bout de phrase après le filtre anti-redites : on la refait
+                if gate.dropped and reply_id == self.reply_id and (reply is None or len(re.sub(r"\W", "", reply)) < 15):
                     log.info("Réponse refaite : la première ne faisait que se répéter")
                     messages.append({"role": "system", "content": "Ta première idée répétait mot pour mot ce que tu as "
                                      "déjà dit (ou tes tics) : réponds-lui autre chose, de neuf, avec d'autres mots."})
@@ -476,7 +483,9 @@ class Capri:
             self.spawn(self.learn(text, reply, memories))
 
     def _tic_hint(self) -> str:
-        if not self.word_tics:
+        # Désactivé : citer le mot à éviter (« n'emploie plus glitch-musique ») le lui remettait en tête — mesuré sur la
+        # batterie de conversations. Ses tics sont seulement retirés de l'historique (voir _history).
+        if True or not self.word_tics:
             return ""
         return ("\nTu répètes beaucoup trop ces mots ou expressions ces derniers temps : « " + " », « ".join(self.word_tics)
                 + " ». Ne les emploie plus du tout : parle d'autre chose, avec d'autres images.")
@@ -647,7 +656,7 @@ class Capri:
             live["speech"].put_nowait(line)
 
     async def _respond(self, messages: list[dict], reply_id: int, gate: QuestionGate | None = None,
-                       prelude: tuple[str, str] | None = None) -> str | None:
+                       prelude: tuple[str, str] | None = None, final: bool = True) -> str | None:
         """Diffuse sa réponse (texte, humeur, voix) puis l'enregistre. None en cas d'erreur."""
         live = await self._open_reply(reply_id)
         self._live = None
@@ -730,9 +739,10 @@ class Capri:
                     self.perf.finish(turn)
 
         reply = clean_reply((prelude[0] + " " if prelude else "") + "".join(parts))
-        if not reply and gate and gate.dropped:
+        if gate and gate.dropped and len(re.sub(r"\W", "", reply)) < 15:
             log.info("Réponse abandonnée : elle n'aurait fait que se répéter")
-            await self.broadcast({"type": "done", "text": "", "mood": self.mood})
+            if final:  # sinon une 2e tentative suit : pas de « fini » vide avant la vraie réponse
+                await self.broadcast({"type": "done", "text": "", "mood": self.mood})
             return None
         if interrupted:
             # ce qu'elle disait quand il l'a coupée : la suite de la conversation le saura

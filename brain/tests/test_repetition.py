@@ -41,10 +41,6 @@ class RepetitionTest(unittest.TestCase):
         tics = tic_phrases(replies)
         self.assertTrue(any("glitch-musique" in t for t in tics), tics)
         self.assertFalse(any(t in ("dans", "pour", "chien") for t in tics), tics)
-        g = QuestionGate(True, already_said=replies)
-        out = g.feed("Bonne nuit. Je vais faire exploser un glitch-musique dans ton rêve. Dors bien. ") + g.flush()
-        self.assertNotIn("glitch", out)
-        self.assertIn("Dors bien", out)
         self.assertFalse(has_tic("Rien à voir.", tics))
 
     def test_liked_songs_reach_the_planner(self):

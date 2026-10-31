@@ -232,6 +232,8 @@ class LLM:
                 "num_predict": max_tokens or self.max_tokens,
                 # sans ça, qwen3-vl part parfois en boucle et répète la même phrase jusqu'à la limite
                 "repeat_penalty": 1.12, "repeat_last_n": 256, "top_p": 0.92,
+                # réglages d'échantillonnage de config.toml ([llm.ollama.sampling]) ; CAPRI_LLM_OPTIONS pour un essai
+                **self.ollama.get("sampling", {}), **json.loads(os.environ.get("CAPRI_LLM_OPTIONS") or "{}"),
             },
         }
         if json_mode:
