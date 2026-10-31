@@ -182,19 +182,7 @@
   function headPoly(F, ownHair) {
     const W = F.bandWidth + Math.max(0, F.bandTopExtra) + Math.max(0, F.bandCurve) + 3;
     const top = F.bandY - F.bandHeight / 2 - (ownHair ? Math.max(5, F.hairGap + 3) : 1), bot = F.bandY + F.bandHeight / 2, ch = F.chinLength;
-    return [
-      [-W, top],
-      [-W - 2, F.bandY],
-      [-W + 1, bot + 2],
-      [-W * 0.6, bot + ch * 0.6],
-      [-W * 0.2, bot + ch * 0.95],
-      [W * 0.05, bot + ch],
-      [W * 0.3, bot + ch * 0.85],
-      [W * 0.7, bot + ch * 0.5],
-      [W + 1, bot],
-      [W + 2, F.bandY - 2],
-      [W - 1, top]
-    ];
+    return [[-W, top], [-W - 2, F.bandY], [-W + 1, bot + 2], [W * 0.04, bot + ch], [W + 1, bot], [W + 2, F.bandY - 2], [W - 1, top]];
   }
   var LOCKS = [
     // x (share of band half-width), half base, length factor, lean
@@ -240,7 +228,7 @@
   var rad = (deg2) => deg2 * Math.PI / 180;
   function clipOutFace(ctx2, head, F) {
     const hw = F.bandWidth / 2 + 3, top = F.bandY - F.bandHeight / 2, mid = F.bandY + F.bandHeight / 2, bot = mid + F.chinLength + 3;
-    const pts = [[-hw, top], [hw, top], [hw, mid], [hw * 0.75, mid + F.chinLength * 0.6], [hw * 0.4, bot], [-hw * 0.4, bot], [-hw * 0.75, mid + F.chinLength * 0.6], [-hw, mid]].map((q) => head.apply(q));
+    const pts = [[-hw, top], [hw, top], [hw, mid], [hw * 0.04, bot], [-hw, mid]].map((q) => head.apply(q));
     ctx2.beginPath();
     ctx2.rect(-1e5, -1e5, 2e5, 2e5);
     ctx2.moveTo(pts[0][0], pts[0][1]);
@@ -628,23 +616,17 @@
   }
   function bite(ctx2, m, p, o) {
     const smile = clamp(p.mouthSmile, -1, 1);
-    const w = 4 + o * 3.5 + Math.max(0, smile) * 2;
-    const h = 2.4 + o * 6.5;
-    const lift = Math.max(0, smile) * 1.5;
-    const tooth = 0.8 + o * 1;
+    const w = 4.5 + o * 3.5 + Math.max(0, smile) * 2;
+    const h = 2.6 + o * 5.5;
+    const lift = Math.max(0, smile) * 1.6;
+    const tooth = 0.5 + o * 0.6;
     const shape = [
-      [-w, -lift],
-      [-w * 0.62, -tooth - lift * 0.5],
-      [-w * 0.38, 0.2],
-      [-w * 0.08, -tooth * 1.15],
-      [w * 0.2, 0.3],
-      [w * 0.5, -tooth - lift * 0.4],
-      [w * 0.74, -0.2],
-      [w, -lift - 0.5],
-      [w * 0.62, h * 0.48],
-      [w * 0.05, h],
-      [-w * 0.3, h * 0.7],
-      [-w * 0.72, h * 0.42]
+      [-w, -w * 0.1],
+      [-w * 0.4, w * 0.08],
+      [-w * 0.22, w * 0.08 - tooth],
+      [-w * 0.08, w * 0.1],
+      [w, -w * 0.3 - lift],
+      [-w * 0.07, h]
     ];
     ctx2.fillStyle = PALETTE.white;
     ctx2.fill(toPath(m.map(shape)));
@@ -665,7 +647,7 @@
       const t = i / (pts - 1), u = 2 * t - 1, x = -w + 2 * w * t;
       const base = -lift * u * u + lift * 0.35 - smirk * 2.4 * Math.max(0, u) ** 1.5;
       const zig = (i % 2 ? zigAmp : -zigAmp) * (1 - 0.5 * u * u);
-      const profile = grin > 0.3 ? Math.pow(Math.max(0, 1 - u * u), 0.75) : Math.pow(Math.max(0, 1 - u * u), 0.45);
+      const profile = Math.max(0, 1 - Math.abs(u));
       const d = depthMax * profile;
       upper.push([x, base + zig - d * 0.35]);
       lower.push([x, base - zig * 0.6 + d * 0.65 + (grin > 0.3 ? lift * 0.25 * (1 - u * u) : 0)]);

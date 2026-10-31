@@ -937,7 +937,13 @@ function cleanup() {
   tray = null;
   log?.info('arrêt propre');
 }
-function restart() { cleanup(); app.relaunch(); app.exit(0); } // le cerveau et Ollama restent : elle revient tout de suite
+/** Redémarrer : son départ (visage plein écran, télé qui s'éteint), puis elle revient avec son arrivée. Le cerveau et
+ *  Ollama restent : elle revient tout de suite. */
+function restart() {
+  if (farewellStarted) return;
+  farewellStarted = true;
+  void (TEST ? Promise.resolve() : farewell()).finally(() => { cleanup(); app.relaunch(); app.exit(0); });
+}
 
 app.on('before-quit', (e) => {
   if (shutdownDone || TEST) { cleanup(); return; }

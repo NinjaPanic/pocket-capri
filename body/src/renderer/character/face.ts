@@ -102,8 +102,8 @@ function headPoly(F: FaceConfig, ownHair: boolean): Poly {
   const W = F.bandWidth + Math.max(0, F.bandTopExtra) + Math.max(0, F.bandCurve) + 3;
   // on the drawn body the sprite's own hair frames the face: the head stops just over the band
   const top = F.bandY - F.bandHeight / 2 - (ownHair ? Math.max(5, F.hairGap + 3) : 1), bot = F.bandY + F.bandHeight / 2, ch = F.chinLength;
-  return [[-W, top], [-W - 2, F.bandY], [-W + 1, bot + 2], [-W * 0.6, bot + ch * 0.6], [-W * 0.2, bot + ch * 0.95], [W * 0.05, bot + ch],
-    [W * 0.3, bot + ch * 0.85], [W * 0.7, bot + ch * 0.5], [W + 1, bot], [W + 2, F.bandY - 2], [W - 1, top]];
+  // sous le masque, son visage est un triangle : deux côtés droits jusqu'à un menton en pointe (comme dans la série)
+  return [[-W, top], [-W - 2, F.bandY], [-W + 1, bot + 2], [W * 0.04, bot + ch], [W + 1, bot], [W + 2, F.bandY - 2], [W - 1, top]];
 }
 /**
  * Her hair over the forehead: it covers everything above the band (no black forehead) and drops a
@@ -146,7 +146,7 @@ const rad = (deg: number) => (deg * Math.PI) / 180;
  */
 export function clipOutFace(ctx: CanvasRenderingContext2D, head: Mat, F: FaceConfig) {
   const hw = F.bandWidth / 2 + 3, top = F.bandY - F.bandHeight / 2, mid = F.bandY + F.bandHeight / 2, bot = mid + F.chinLength + 3;
-  const pts: Pt[] = ([[-hw, top], [hw, top], [hw, mid], [hw * 0.75, mid + F.chinLength * 0.6], [hw * 0.4, bot], [-hw * 0.4, bot], [-hw * 0.75, mid + F.chinLength * 0.6], [-hw, mid]] as Pt[]).map((q) => head.apply(q));
+  const pts: Pt[] = ([[-hw, top], [hw, top], [hw, mid], [hw * 0.04, bot], [-hw, mid]] as Pt[]).map((q) => head.apply(q)); // menton en pointe
   ctx.beginPath();
   ctx.rect(-1e5, -1e5, 2e5, 2e5);
   ctx.moveTo(pts[0][0], pts[0][1]);
@@ -569,13 +569,15 @@ function mouth(ctx: CanvasRenderingContext2D, m: Mat, p: Params, S: number) {
  */
 function bite(ctx: CanvasRenderingContext2D, m: Mat, p: MouthIn, o: number) {
   const smile = clamp(p.mouthSmile, -1, 1);
-  const w = 4 + o * 3.5 + Math.max(0, smile) * 2;
-  const h = 2.4 + o * 6.5;
-  const lift = Math.max(0, smile) * 1.5; // corners rise as she smiles
-  const tooth = 0.8 + o * 1.0;
+  const w = 4.5 + o * 3.5 + Math.max(0, smile) * 2;
+  const h = 2.6 + o * 5.5; // jusqu'à la pointe du bas
+  const lift = Math.max(0, smile) * 1.6; // son coin droit remonte quand elle sourit
+  const tooth = 0.5 + o * 0.6;
+  // comme dans la série : le haut presque droit avec une petite dent, le coin droit qui remonte en pointe,
+  // et le bas en triangle, deux côtés droits jusqu'à une pointe un peu à gauche du milieu
   const shape: Pt[] = [
-    [-w, -lift], [-w * 0.62, -tooth - lift * 0.5], [-w * 0.38, 0.2], [-w * 0.08, -tooth * 1.15], [w * 0.2, 0.3], [w * 0.5, -tooth - lift * 0.4], [w * 0.74, -0.2], [w, -lift - 0.5],
-    [w * 0.62, h * 0.48], [w * 0.05, h], [-w * 0.3, h * 0.7], [-w * 0.72, h * 0.42],
+    [-w, -w * 0.1], [-w * 0.4, w * 0.08], [-w * 0.22, w * 0.08 - tooth], [-w * 0.08, w * 0.1], [w, -w * 0.3 - lift],
+    [-w * 0.07, h],
   ];
   ctx.fillStyle = C.white;
   ctx.fill(toPath(m.map(shape)));
@@ -601,8 +603,8 @@ function zigOrTeeth(ctx: CanvasRenderingContext2D, m: Mat, p: Params, S: number)
     const t = i / (pts - 1), u = 2 * t - 1, x = -w + 2 * w * t;
     const base = -lift * u * u + lift * 0.35 - smirk * 2.4 * Math.max(0, u) ** 1.5; // smile curve, smirk hitch on her left
     const zig = (i % 2 ? zigAmp : -zigAmp) * (1 - 0.5 * u * u);
-    // a grin opens as a crescent (nothing at the corners); a plain open mouth is a rounder slot
-    const profile = grin > 0.3 ? Math.pow(Math.max(0, 1 - u * u), 0.75) : Math.pow(Math.max(0, 1 - u * u), 0.45);
+    // le bas de sa bouche descend en triangle (côtés droits jusqu'à une pointe), jamais en arrondi
+    const profile = Math.max(0, 1 - Math.abs(u));
     const d = depthMax * profile;
     upper.push([x, base + zig - d * 0.35]);
     lower.push([x, base - zig * 0.6 + d * 0.65 + (grin > 0.3 ? lift * 0.25 * (1 - u * u) : 0)]);

@@ -11,6 +11,7 @@
  *
  * Son visage est le même dessin vectoriel que sur le bureau (face.ts) : net à toutes les tailles, avec ses réglages.
  */
+import modelData from '../../../assets/capri/model.json';
 import { drawFace, getFaceConfig, setFaceConfig } from '../character/face';
 import { Mat, prng } from '../character/geometry';
 import { NEUTRAL, type Params } from '../character/params';
@@ -46,44 +47,59 @@ const pulse = (t: number, a: number, b: number) => (t > a && t < b ? Math.sin(((
 const t0 = performance.now();
 
 // ---------------------------------------------------------------- son visage
-// en unités de son visage : le masque et le menton vont de y = -14 à +21 ; sa crinière monte jusqu'à -60 environ
-const K = () => Math.min(H * 0.86 / 82, W * 0.9 / 110);
-const CY = () => H * 0.62; // le centre de son masque : la crinière a de la place au-dessus
-function faceBox() { const k = K(); return { x: W / 2 - 34 * k, y: CY() - 18 * k, w: 68 * k, h: 42 * k }; }
+// sa vraie crinière : les formes tracées de son modèle (pose assise, assets/capri/model.json), à la même échelle que
+// son visage, posées autour de lui ; trop grande pour l'écran, elle le déborde et l'avale
+// la caméra : de loin, toute sa tête et sa crinière tiennent dans l'écran ; de près, son visage en fait 40 % de la hauteur
+let zoom = 0; // 0 loin .. 1 près, réglé par chaque scène
+const K = () => { const far = (H * 0.94) / 285, near = (H * 0.4) / 36; return far * Math.pow(near / far, zoom); };
+const CY = () => { const far = H * 0.03 + 258 * ((H * 0.94) / 285), near = H * 0.6; return far + (near - far) * zoom; };
+function faceBox() { const k = K(); return { x: W / 2 - 30 * k, y: CY() - 16 * k, w: 60 * k, h: 40 * k }; }
 
-/** Sa crinière : une grande masse rose en pointes, qui ondule un peu, piquée de paillettes blanches. */
-const SPIKES = (() => {
-  const r = prng(77), n = 30;
-  return Array.from({ length: n }, (_, i) => {
-    const u = i / (n - 1), a = -Math.PI - 0.55 + u * (Math.PI + 1.1);
-    const side = Math.abs(u - 0.5) * 2; // 0 en haut, 1 sur les côtés
-    return { a: a + (r() - 0.5) * 0.08, w: 0.1 + r() * 0.08, len: 40 + r() * 26 - side * 14, bend: (r() - 0.5) * 0.25, ph: r() * 6 };
-  });
+type Poly = number[][];
+const POSE = (modelData as unknown as { poses: Record<string, { face: { x: number; y: number; angle: number }; layers: Record<string, Poly[]> }> }).poses.sit;
+const HAIR_FILL: Record<string, string> = { violet: '#7b3cf0', hair: '', crimson: '', shade: '#7a0d33', ink: '#07060c' };
+/** Ses formes de cheveux, ramenées dans le repère de son visage (le corps est laissé de côté). */
+const HAIR = (() => {
+  const { x: fx0, y: fy0, angle } = POSE.face, c = Math.cos(-angle), sn = Math.sin(-angle);
+  const out: { cls: string; path: Path2D }[] = [];
+  const all = new Path2D();
+  for (const cls of ['violet', 'hair', 'crimson', 'shade', 'ink']) {
+    for (const poly of POSE.layers[cls] ?? []) {
+      if (poly.length < 3) continue;
+      const pts = poly.map(([x, y]) => [(x - fx0) * c - (y - fy0) * sn, (x - fx0) * sn + (y - fy0) * c]);
+      const cy = pts.reduce((a, q) => a + q[1], 0) / pts.length, cx = pts.reduce((a, q) => a + q[0], 0) / pts.length;
+      if (cls === 'ink' ? cy > 14 : cy > 75 || (Math.abs(cx) < 40 && cy > 40)) continue; // sa robe, son buste
+      const path = new Path2D();
+      pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+      path.closePath();
+      out.push({ cls, path });
+      if (cls === 'hair' || cls === 'crimson') all.addPath(path);
+    }
+  }
+  return { shapes: out, all };
 })();
-const FLAKES = (() => { const r = prng(9); return Array.from({ length: 90 }, () => ({ a: -Math.PI - 0.4 + r() * (Math.PI + 0.8), d: 14 + r() * 38, s: 0.4 + r() * 0.9, ph: r() * 6 })); })();
-function drawMane(head: Mat, t: number) {
-  const col = getFaceConfig().hairColor || '#fb2f6c', cx = 0, cy = -8;
-  const pt = (a: number, d: number) => head.apply([cx + Math.cos(a) * d * 1.25, cy + Math.sin(a) * d]);
+const GLITTER = (() => { const r = prng(4242); return Array.from({ length: 2600 }, () => ({ x: -280 + r() * 540, y: -260 + r() * 340, s: 0.35 + r() ** 3 * 1.6, ph: r() * 6 })); })();
+
+function drawHair(head: Mat, t: number) {
+  const col = getFaceConfig().hairColor || '#fb2f6c';
+  const m = new DOMMatrix([head.a, head.b, head.c, head.d, head.e, head.f]).rotate(Math.sin(t * 1.3) * 0.6);
   fc.save();
-  fc.fillStyle = col; fc.strokeStyle = '#7a0f35'; fc.lineWidth = 1.5; fc.lineJoin = 'miter';
-  const sway = (i: number) => Math.sin(t * 1.8 + SPIKES[i].ph) * 0.035;
-  fc.beginPath();
-  SPIKES.forEach((sp, i) => {
-    const a = sp.a + sway(i);
-    const [bx1, by1] = pt(a - sp.w, 20), [tx, ty] = pt(a + sp.bend, sp.len), [bx2, by2] = pt(a + sp.w, 20);
-    if (i === 0) fc.moveTo(bx1, by1); else fc.lineTo(bx1, by1);
-    fc.lineTo(tx, ty); fc.lineTo(bx2, by2);
-  });
-  fc.closePath(); fc.fill(); fc.stroke();
-  // le cœur de la crinière, sans trou derrière sa tête
-  const [ex, ey] = head.apply([cx, cy]), r = Math.hypot(head.a, head.b);
-  fc.beginPath(); fc.ellipse(ex, ey, 30 * r, 24 * r, Math.atan2(head.b, head.a), 0, Math.PI * 2); fc.fill();
+  fc.setTransform(new DOMMatrix([dpr, 0, 0, dpr, 0, 0]).multiply(m));
+  // chaque forme est aussi tracée de sa couleur : plus de fines lignes entre deux formes voisines
+  fc.lineWidth = 2.5 / Math.hypot(m.a, m.b); fc.lineJoin = 'round';
+  for (const { cls, path } of HAIR.shapes) {
+    fc.fillStyle = fc.strokeStyle = HAIR_FILL[cls] || col;
+    if (cls === 'violet') { fc.save(); fc.translate(-2.5, 2); fc.fill(path); fc.restore(); } else { fc.fill(path); fc.stroke(path); }
+  }
+  // les paillettes blanches de sa crinière, plus denses vers le haut, qui scintillent
+  fc.clip(HAIR.all);
   fc.fillStyle = '#ffffff';
-  for (const f of FLAKES) {
-    const tw = 0.5 + 0.5 * Math.sin(t * 3 + f.ph);
-    const [x, y] = pt(f.a, f.d);
-    fc.globalAlpha = 0.35 + 0.65 * tw;
-    fc.beginPath(); fc.arc(x, y, f.s * r * (0.6 + 0.4 * tw), 0, Math.PI * 2); fc.fill();
+  const px = 1 / Math.hypot(m.a, m.b); // une unité de son modèle → des pixels : paillettes fines à toutes les tailles
+  for (const g of GLITTER) {
+    const tw = 0.5 + 0.5 * Math.sin(t * 2.6 + g.ph);
+    fc.globalAlpha = (0.3 + 0.7 * tw) * (0.55 + 0.45 * Math.min(1, -g.y / 200));
+    const sz = g.s * 2.2 * px;
+    fc.fillRect(g.x, g.y, sz, sz);
   }
   fc.restore();
 }
@@ -95,7 +111,7 @@ function renderFace(p: Params, t: number) {
   fc.clearRect(0, 0, faceCv.width, faceCv.height);
   fc.setTransform(dpr, 0, 0, dpr, 0, 0);
   const head = new Mat().translate(W / 2, CY()).rotate(p.headRoll).scale(k);
-  drawMane(head, t);
+  drawHair(head, t);
   drawFace(fc, head, p, k);
 }
 
@@ -210,6 +226,7 @@ function intro(t: number) {
   sweep(t);
   // son visage : il se recolle, les yeux s'ouvrent sur ta souris, grand sourire, « salut », tête penchée, mille yeux
   if (t > 0.25 && t < 2.45) {
+    zoom = ease((t - 0.92) / 0.45);
     const p: Params = { ...NEUTRAL };
     const open = clamp((t - 0.95) / 0.06);
     p.blinkL = p.blinkR = 1 - open;
@@ -224,8 +241,7 @@ function intro(t: number) {
     renderFace(p, t);
     const build = 1 - smooth((t - 0.25) / 0.6), gone = smooth((t - 2.05) / 0.35);
     showFace(Math.max(build, gone), Math.max(build, pulse(t, 0.95, 1.1) * 0.5, gone), clamp((t - 0.25) / 0.15) * (1 - gone));
-    const b = faceBox();
-    label(en ? 'hi.' : 'salut.', W / 2, Math.min(H - 24, b.y + b.h + 40), (t - 1.3) / 0.3, '#ffffff', 26, 'center');
+    label(en ? 'hi.' : 'salut.', W / 2, H - 30, (t - 1.3) / 0.3, '#ffffff', 26, 'center');
   }
   // son visage se défait en glyphes aspirés en spirale vers sa place
   if (t >= 2.05 && t < 2.65) {
@@ -253,6 +269,7 @@ function outro(t: number) {
   if (t < 1.8) veil(clamp(t / 0.25));
   // son visage revient, te regarde, « à plus », clin d'œil, ferme les yeux et se déchire
   if (t < 1.6) {
+    zoom = 1 - smooth((t - 1.15) / 0.45);
     const p: Params = { ...NEUTRAL };
     gaze(p);
     p.mouthSmile = 0.6; p.squint = 0.2; p.maskGlow = 0.5;
@@ -263,8 +280,7 @@ function outro(t: number) {
     renderFace(p, t);
     const build = 1 - smooth(t / 0.3), gone = smooth((t - 1.3) / 0.3);
     showFace(Math.max(build, gone), Math.max(build, gone), clamp(t / 0.12) * (1 - gone));
-    const b = faceBox();
-    label(en ? 'see you.' : 'à plus.', W / 2, Math.min(H - 24, b.y + b.h + 40), (t - 0.45) / 0.3, '#ffffff', 26, 'center');
+    label(en ? 'see you.' : 'à plus.', W / 2, H - 30, (t - 0.45) / 0.3, '#ffffff', 26, 'center');
   }
   if (t >= 1.3) {
     if (!motes) makeMotes(700, W / 2, H / 2);

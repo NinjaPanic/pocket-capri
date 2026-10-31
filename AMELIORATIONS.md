@@ -359,7 +359,11 @@ Ensuite, à ta demande, **son visage sur tout l'écran** : à l'arrivée, son vi
 le bureau, avec tes réglages de l'éditeur, et sa crinière rose pailletée) se recolle, yeux fermés ; ils s'ouvrent d'un
 coup sur ta souris, grand sourire, « salut », tête penchée, puis le visage se défait en glyphes aspirés vers sa place.
 Au départ, son visage revient, te regarde, « à plus », clin d'œil, ferme les yeux et se déchire avant que l'écran
-s'éteigne.
+s'éteigne. Puis : **ses vrais cheveux** (les formes tracées de son modèle, sa grande crinière anguleuse pailletée, à la bonne
+échelle) ; on la voit d'abord en entier puis la caméra fonce sur son visage quand ses yeux s'ouvrent. **Redémarrer**
+joue aussi le départ puis l'arrivée. **Partout** (bureau, scènes, éditeur) : le bas de son visage est un triangle, deux
+côtés droits jusqu'à un menton en pointe, et sa bouche ouverte aussi (haut presque droit avec une petite dent, coin droit
+qui remonte, bas en pointe) ; le bas de son grand sourire descend en V.
 
 **Quota en ligne** : le passage au modèle local quand le quota est plein vaut pour tous les services en ligne (Groq,
 Gemini, OpenAI, Anthropic, Mistral, xAI, DeepSeek, OpenRouter), et aussi quand il n'y a plus de crédit (erreur 402).
