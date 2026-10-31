@@ -4,6 +4,7 @@ import { Mat, clamp } from './geometry';
 import { clipOutFace, drawFace, getFaceConfig, setFaceOutline } from './face';
 import { PALETTE as C } from './palette';
 import { FACE_SHIFT, Rig, drawRigged, flakePattern } from './rig';
+import { SkinBody, drawSkinned } from './skin';
 import type { Params } from './params';
 import { noise1 } from './motion';
 
@@ -65,6 +66,8 @@ export class SpriteBody {
   private lastFace: FaceAnchor = null;
   private paths = new Map<string, Map<VClass, Path2D>>();
   private rig = new Rig();
+  /** Son corps souple (ses pièces découpées) : quand il est choisi, il remplace tous les dessins. */
+  readonly skin = new SkinBody();
   ready = false;
   /**
    * What was drawn last (inspector): the sprite→screen matrix, the sheet and frame, and on the
@@ -144,6 +147,7 @@ export class SpriteBody {
       img.src = `${base}${n}.png`;
     })));
     this.ready = this.raw.has('idle');
+    void this.skin.load();
   }
 
   /** Recolour the crimson of every sheet to her hair colour (done once per colour change). */
@@ -186,7 +190,7 @@ export class SpriteBody {
     if (!this.ready) return false;
     const F = getFaceConfig();
     this.recolour(F.hairColor);
-    const next = this.pick(inp);
+    const next = F.skin >= 0.5 && this.skin.ready ? 'idle' : this.pick(inp); // corps souple : un seul corps, qui fait tout
     // one-shot sheets (glitch, wake, dance) play to the end before handing back
     const cur = FACES[this.sheet], curCount = this.raw.get(this.sheet) ? Math.floor(this.raw.get(this.sheet)!.width / cur.frameW) : 1;
     const curDone = LOOP[this.sheet] || this.t * FPS[this.sheet] >= curCount;
@@ -240,6 +244,10 @@ export class SpriteBody {
     }
     // everyday life (standing, talking, gestures) on the articulated body; the special drawn sheets
     // (sleep, dangle, glitch, walk, dance…) keep their hand-drawn frames
+    if (F.skin >= 0.5 && this.skin.ready) {
+      drawSkinned(ctx, this.skin, base, flip, p, this.t, F, inp.dashing);
+      return true;
+    }
     if (F.skeleton >= 0.5 && this.sheet === 'idle') {
       drawRigged(ctx, this.rig, base, flip, p, this.t, F, this.debug);
       this.debug.joints = this.rig.joints();

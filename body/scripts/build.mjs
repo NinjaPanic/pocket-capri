@@ -28,6 +28,9 @@ for (const f of prod ? ['character.html', 'scene.html'] : ['character.html', 'sc
 // hand-drawn body sprites from lachydotmcg/capri-desktop (PolyForm Noncommercial, licence copied alongside)
 const sprites = path.join(root, 'assets', 'desktop-sprites');
 if (fs.existsSync(sprites)) fs.cpSync(sprites, path.join(out, 'renderer', 'sprites'), { recursive: true, filter: (f) => !f.endsWith('.json') });
+// son corps souple : ses pièces découpées (tools/build_skin.py)
+const skin = path.join(root, 'assets', 'skin');
+if (fs.existsSync(skin)) fs.cpSync(skin, path.join(out, 'renderer', 'skin'), { recursive: true, filter: (f) => !f.endsWith('.json') && !f.endsWith('squelette.png') });
 // real-footage cut-outs for the character (see assets/capri/SOURCES.md)
 const capri = path.join(root, 'assets', 'capri');
 if (fs.existsSync(capri)) fs.cpSync(capri, path.join(out, 'renderer', 'capri'), { recursive: true, filter: (f) => !f.endsWith('.md') });

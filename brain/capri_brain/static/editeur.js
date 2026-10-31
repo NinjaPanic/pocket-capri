@@ -135,6 +135,7 @@
     faceAngle: 0,
     hairFront: 1,
     skeleton: 1,
+    skin: 0,
     faceTraced: 1,
     eyeMirror: 1,
     lashScale: 1.3,

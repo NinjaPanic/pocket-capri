@@ -222,9 +222,9 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
  * Behaviour params → bone angles. Rest is the drawing itself (black arm flung out to the left, pink arm
  * hanging). "L" is the black arm on the viewer's left, "R" the pink one on the right.
  */
-const ARM_L_REST = -30;
+export const ARM_L_REST = -30;
 /** The drawing stands on the tips of pointed feet: each foot is turned flat (black one to the left, pink one to the right). */
-const FOOT_REST = { L: 50, R: -50 };
+export const FOOT_REST = { L: 50, R: -50 };
 export function poseFromParams(p: Params, t: number, base: Pose): { pose: Pose; stretch: Pose; drop: number } {
   const pose: Pose = { ...base };
   const add = (k: string, v: number) => { pose[k] = (pose[k] ?? 0) + v; };

@@ -53,6 +53,7 @@ export interface FaceConfig {
   faceAngle: number; // rotation ajoutée au visage sur le corps dessiné (degrés)
   hairFront: number; // 1 = les cheveux du dessin passent devant le visage
   skeleton: number; // 1 = corps articulé (poses libres), 0 = animations dessinées image par image
+  skin: number; // 1 = son corps souple (ses pièces découpées, membres qui se plient en douceur)
   faceTraced: number; // 1 = visage tracé 1:1 depuis la capture de référence, 0 = visage réglable aux curseurs
   eyeMirror: number; // 1 = l'œil gauche est le reflet exact de l'œil droit tracé
   lashScale: number; // longueur des cils (pointes de l'orbite tracée), 1 = comme sur la capture
@@ -75,7 +76,7 @@ export const DEFAULT_FACE: FaceConfig = {
   ringR: 5.6, ringWidth: 0.55, iris: 0.7, glint: 0.27,
   lashLength: 5.5, lashWidth: 2.4, lashAngle: 12,
   mouthGap: 4, mouthSize: 1.1, mouthLine: 0.5, chinLength: 16, hairGap: 0, fringeLocks: 9,
-  spriteBody: 1, faceScale: 1.1, headScale: 1.15, faceX: 0, faceY: 0, faceAngle: 0, hairFront: 1, skeleton: 1, faceTraced: 1, eyeMirror: 1, lashScale: 1.3, lashTopScale: 2.2, eyeGap: 2.5, eyeTurn: -10, eyeShiftY: 0, crossLashAngle: (traceData as { lashAngle?: number }).lashAngle ?? -25, // measured on the reference eye
+  spriteBody: 1, faceScale: 1.1, headScale: 1.15, faceX: 0, faceY: 0, faceAngle: 0, hairFront: 1, skeleton: 1, skin: 0, faceTraced: 1, eyeMirror: 1, lashScale: 1.3, lashTopScale: 2.2, eyeGap: 2.5, eyeTurn: -10, eyeShiftY: 0, crossLashAngle: (traceData as { lashAngle?: number }).lashAngle ?? -25, // measured on the reference eye
   ...Object.fromEntries(['torso', 'head', 'hair', 'upperArmL', 'forearmL', 'handL', 'upperArmR', 'forearmR', 'handR',
     'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR'].map((b) => [`p_${b}`, 0])),
   maskColor: '#22f27a', irisColor: '#1d6cff', hairColor: '#fb2f6c',
