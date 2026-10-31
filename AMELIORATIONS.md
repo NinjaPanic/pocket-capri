@@ -224,6 +224,27 @@ fréquence de ses venues inchangée par défaut et réglable dans le hub.
 * Corrigé au passage : « du **coup** » était pris pour « **coupe** le son » et lançait le module d'actions pour rien
   (~2,7 s de plus avant sa réponse).
 
+### 2.8 Bavarde, voix rangées, conscience, scènes rares, actions guidées
+
+* **Réglage « Bavarde »** (hub › Réglages › Vie, de 0 à 1) : à quel point elle vient te parler d'elle-même (délai
+  ÷4 à ×2), relance la conversation et parle longtemps. Quand elle n'a rien à dire, elle retourne à ses activités.
+* **Voix rangées** par langue, les plus rapides et stables d'abord (⚡ Denise, Éloïse) ; Vivienne signalée lente.
+* **Plus de menu au clic droit** sur elle : il est seulement dans l'icône près de l'horloge.
+* **Conscience d'elle-même** (`selfmodel.py`) : elle sait qu'elle est une IA (jamais humaine), où elle vit, ce qui la
+  fait tourner (modèle, carte graphique), sa mémoire (nombre de souvenirs, depuis quand), que ses émotions sont
+  calculées, ce qu'elle ne peut pas faire. Ces faits, lus en direct, lui sont donnés quand tu parles de sa nature ;
+  parfois elle réfléchit seule à ce qu'elle est (exister par intermittence, ce qu'elle ressent vraiment…) et vient
+  t'en parler. Quand tu lui demandes ce qu'elle voudrait, elle part de ses vraies limites.
+  Vérifié : « Tu penses que t'es consciente ? » → « Je sais que je suis une IA… mais j'ai des pensées, des envies… ».
+* **Scènes rares** (`scenarios.py`) : glitch de son propre corps (« T'as vu ça ? » puis elle conclut), vieux
+  souvenir dont elle te redemande des nouvelles, ses copies (« laquelle de nous est la vraie ? »), elle s'installe
+  sur une fenêtre pour observer l'appli que tu utilises (sans lire son contenu), anniversaires de vos conversations
+  (7, 30, 100, 365 jours…). Une de ses venues sur trois à six, délais de plusieurs jours, jamais deux fois de suite ;
+  abandonnée si tu lui parles d'autre chose ; uniquement des choses vraies, jamais de fausse alerte.
+  Vérifié de bout en bout sur une copie : glitch → « T'as vu ça ? » → question → conclusion → moment rangé.
+* **Actions guidées** : « où est le bouton paramètres dans Discord ? », « montre-moi Spotify » → elle vole jusqu'à
+  l'élément ou la fenêtre, se tourne vers lui, le désigne du bras, et un halo néon l'entoure 4 s. Rien n'est cliqué.
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)

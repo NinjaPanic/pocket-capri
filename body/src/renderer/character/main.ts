@@ -57,6 +57,7 @@ let dragging = false;
 let forced: Partial<Params> | null = null;
 let surface: Surface = 'taskbar';
 let dashing = 0; // pose override for previews/tests only
+let pointUntil = 0, pointDir = 1; // elle désigne quelque chose (actions guidées) : tournée de ce côté
 let flipAngle = 0, flipV = 0; // la tête en bas (au plafond) : angle de son corps, et sa vitesse
 
 const fx = new TeleportFx(() => document.createElement('canvas'));
@@ -111,6 +112,8 @@ function onBrain(e: BrainEvent) {
   switch (e.type) {
     case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; setFeeling(e.feeling); shareSettings(); break;
     case 'feeling': setFeeling(e.emotion); break;
+    case 'point': if (!dragging) { roamer.halt(15_000); void api.invoke('char:point', { x: e.x, y: e.y, w: e.w, h: e.h }).catch(() => undefined); } break;
+    case 'glitch': if (settings?.character.glitchEffects && !night) model.glitchNow('slice', 0.9); break;
     case 'night': night = e.on; break;
     case 'notice': // une réaction à ce qui se passe sur le PC : un geste et une petite bulle, sans rien interrompre
       if (dragging || phase !== 'idle' || !replyDone) break;
@@ -197,6 +200,7 @@ function loop(now: number) {
  */
 let restSide = 1, lookAwayUntil = 0, nextLookAway = performance.now() + 30_000;
 function facingNow(moveDir: number, p: Params): number {
+  if (performance.now() < pointUntil) return pointDir;
   if (moveDir || dashing) return moveDir || dashing;
   if (Math.abs(p.turn) > 0.2) return p.turn;
   if (pointer) return p.gazeX;
@@ -425,6 +429,7 @@ api.on('cue', (raw) => {
     case 'workPose': workPose = c.pose; break;
     case 'touch': brain.send({ type: 'touch', kind: c.kind }); break;
     case 'landed': behavior.landed(true); break;
+    case 'pointAt': pointUntil = performance.now() + 4000; pointDir = c.dir; behavior.playClip('reach_claw', 'action'); break;
     case 'teleport': onTeleport(c.phase, c.id, c.effects); break;
     case 'clip': emote(c.name); break;
     case 'connection': break;

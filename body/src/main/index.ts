@@ -21,7 +21,7 @@ import { SettingsStore } from './store/settingsStore';
 import { TeleportController } from './desktop/teleportController';
 import { SEAT_RATIO, TELEPORT_TARGETS, type TeleportTarget } from './desktop/teleport';
 import { clampToDisplays, displayFor, type Rect } from './desktop/displays';
-import { createCharacterWindow, createBrainChatWindow, createControlBorder, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
+import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
 import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, win32Status, windowRect } from './desktop/win32';
 
 const TEST = process.env.CAPRI_TEST === '1';
@@ -232,6 +232,38 @@ function hangFromTop() {
   perchRect = null; perchHwnd = 0;
   charWin.setBounds({ ...b, y: Math.round(a.y - b.height * (1 - SEAT_RATIO)) });
   savePosition(); sendSurface();
+}
+
+/**
+ * Actions guidées : elle vole (en douceur, ~0,7 s) jusqu'à côté de ce qu'elle doit montrer, se tourne vers lui, le
+ * désigne du bras, et un halo néon l'entoure pendant 4 s. Rien n'est cliqué ni modifié.
+ */
+let highlightWin: BrowserWindow | null = null;
+function pointAt(t: { x: number; y: number; w: number; h: number }) {
+  if (!charWin || charWin.isDestroyed() || drag.active || throwTimer || fallTimer || teleporter.active) return;
+  const p = screen.screenToDipPoint({ x: t.x, y: t.y });
+  const b = herBounds(), a = displayFor({ ...b, x: p.x, y: p.y }, displaysNow()).workArea;
+  // à gauche de la cible s'il y a la place, sinon à droite ; sa main à hauteur de la cible
+  const left = p.x - b.width - 10 >= a.x;
+  const to = clampToDisplays({ ...b, x: Math.round(left ? p.x - b.width * 0.85 : p.x - b.width * 0.15), y: Math.round(p.y - b.height * 0.42) }, displaysNow());
+  perchRect = null; perchHwnd = 0;
+  const from = { x: b.x, y: b.y }, start = Date.now();
+  cue({ type: 'dash', dir: to.x >= from.x ? 1 : -1 });
+  const anim = setInterval(() => {
+    const w = charWin;
+    if (!w || w.isDestroyed() || drag.active) { clearInterval(anim); return; }
+    const u = Math.min(1, (Date.now() - start) / 700), e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
+    w.setBounds({ ...b, x: Math.round(from.x + (to.x - from.x) * e), y: Math.round(from.y + (to.y - from.y) * e) });
+    if (u < 1) return;
+    clearInterval(anim);
+    cue({ type: 'dash', dir: 0 });
+    cue({ type: 'pointAt', dir: left ? 1 : -1 });
+    const box = screen.screenToDipRect(null, { x: Math.round(t.x - t.w / 2), y: Math.round(t.y - t.h / 2), width: Math.max(40, t.w), height: Math.max(30, t.h) });
+    highlightWin?.destroy();
+    highlightWin = createHighlight({ x: box.x - 8, y: box.y - 8, width: box.width + 16, height: box.height + 16 });
+    setTimeout(() => { highlightWin?.destroy(); highlightWin = null; }, 4000);
+    sendSurface();
+  }, 16);
 }
 
 /** Lâchée près du haut d'une fenêtre ou de la barre des tâches : elle s'y pose. */
@@ -776,6 +808,7 @@ function registerIpc() {
   handle('char:control', z.boolean(), setSteering);
   handle('char:land', none, settleAfterDrop);
   handle('char:ceiling', none, hangFromTop);
+  handle('char:point', z.object({ x: z.number(), y: z.number(), w: z.number().min(0).max(10000), h: z.number().min(0).max(10000) }), pointAt);
   handle('char:step', z.object({ dx: z.number().min(-60).max(60), dy: z.number().min(-60).max(60) }), ({ dx, dy }) => stepBy(dx, dy));
   handle('char:micError', z.string().max(300), (msg) => log.warn('erreur micro', { msg }));
   handle('char:fps', z.number().min(0).max(1000), () => undefined);

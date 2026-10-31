@@ -34,6 +34,7 @@ from . import actions, eyes, hands, life, reminders
 from .curiosity import Curiosity
 from .heart import Heart
 from .mind import Mind
+from . import scenarios, selfmodel
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
 from .memory import Memory
@@ -200,6 +201,7 @@ class Capri:
         reminders.PATH = DATA / "rappels.json"
         self.curiosity = Curiosity(DATA / "decouvertes.json")  # ce qu'elle explore d'elle-même (Wikipédia)
         self.mind = Mind(DATA / "avis.json")  # ses avis à elle et ses envies
+        self.scene: dict | None = None  # petite scène rare en cours (voir scenarios.py)
         self.ringing: dict[int, float] = {}  # rappels en train de sonner (id → depuis quand)
         self.shown_feeling = ""
         self.llm = LLM(cfg)
@@ -356,7 +358,15 @@ class Capri:
             memories = await self.recall(text)
             self.memory.add_message("user", text, client)
 
-            cut = ""
+            scene_note = ""
+            if self.scene:
+                if self.scene.get("waiting") and time.time() < self.scene["waiting"]:
+                    self.scene["answered"] = True
+                    scene_note = ("\nTu venais de lui demander quelque chose de toi-même (« " + self.scene.get("asked", "")[:160]
+                                  + " ») : il te répond. Réponds-lui en concluant ce petit moment, naturellement.")
+                else:
+                    self.scene["abort"] = True
+            cut = scene_note
             if self.interrupted and time.time() - self.interrupted[0] < 90:
                 self.heart.feel("interrompue")
                 cut = (f"\nIl vient de te couper la parole pendant que tu disais : « {self.interrupted[1][-220:]} ». "
@@ -410,6 +420,8 @@ class Capri:
                         + (f" ; ta dernière pensée : {journal}" if journal else "")
                         + (f" ; tu as lu : {' / '.join(read)}" if read else "")
                         + ". Raconte ça avec tes mots, n'invente pas d'autres activités.")
+            if not note and selfmodel.WISH.search(text):
+                note = selfmodel.WISH_NOTE
             if not note and actions.HINT.search(actions.plain(text)):
                 note = actions.nothing_done(asked=False)  # il parlait du PC sans rien demander : qu'elle ne s'invente pas d'action
             question = {"role": "user", "content": f"{text}\n\n{note}" if note else text}
@@ -438,6 +450,8 @@ class Capri:
         out = ""
         if views := self.mind.describe(text):
             out += "\n" + views
+        if selfmodel.ABOUT_HER_NATURE.search(text):
+            out += "\n" + selfmodel.facts(self)
         if (wish := self.mind.current_desire()) and random.random() < 0.3:
             out += f"\nTon envie du moment (à glisser seulement si ça tombe bien) : {wish['text']}"
         return out
@@ -759,6 +773,8 @@ class Capri:
                     f"s'il veut vraiment {what}. Ça se fera seulement s'il répond oui")
         result = await asyncio.to_thread(actions.run, call.name, call.arguments)
         await self.log_action(call.name, call.arguments, result)
+        if call.name == "montrer" and actions.POINT:
+            await self.broadcast({"type": "point", **actions.POINT})  # son corps file jusque-là et le désigne
         return result
 
     async def log_action(self, name: str, args: dict, result: str) -> None:
@@ -1084,6 +1100,9 @@ class Capri:
                 talked_recently = now - (self.memory.last_message_ts() or 0) < 180 * (1.5 - self._chatty())
                 if now < next_talk or talked_recently or idle > 600 or quiet or self.lock.locked():
                     continue
+                if not self.scene and idle < 120 and not busy and await self.maybe_scene():
+                    next_talk = now + self._talk_delay(cfg)
+                    continue
                 event = await self.something_to_say(hour, late_night_done)
                 next_talk = now + self._talk_delay(cfg)
                 if not event:
@@ -1187,6 +1206,58 @@ class Capri:
                 await asyncio.to_thread(reminders.fired, item)
                 await self.broadcast({"type": "reminder", "text": item["texte"]})
 
+    async def maybe_scene(self) -> bool:
+        """De temps en temps (rarement), une petite scène en plusieurs étapes."""
+        old = [m for m in self.memory.list_memories() if time.time() - m["ts"] > 3 * 86400]
+        win = await asyncio.to_thread(eyes.find_window, None)
+        context = {"memory": about_him(random.choice(old)["content"], self.name) if old else "",
+                   "app": win.app if win and win.app.lower() not in ("electron", "capri") else "",
+                   "days": scenarios.days_since(self.memory.first_message_ts())}
+        picked = scenarios.pick(self.inner.state, context, self._chatty())
+        if not picked:
+            return False
+        name, context = picked
+        scenarios.mark(self.inner.state, name, context)
+        self.inner.save()
+        self.spawn(self.play_scene(name, context))
+        return True
+
+    async def play_scene(self, name: str, context: dict) -> None:
+        """Joue une scène étape par étape ; s'arrête si on lui parle d'autre chose ou si « ne pas déranger »."""
+        english = self.voice_cfg.get("langue", "en") == "en"
+        self.scene = scene = {"name": name}
+        log.info("Petite scène : %s", name)
+        try:
+            for step in scenarios.SCENES[name]["steps"]:
+                if scene.get("abort") or scene.get("answered") or actions.quiet():
+                    break
+                kind = step[0]
+                if kind == "glitch":
+                    await self.broadcast({"type": "glitch"})
+                elif kind == "geste":
+                    await self.broadcast({"type": "notice", "emote": step[1], "text": step[3] if english else step[2]})
+                elif kind == "pause":
+                    await asyncio.sleep(step[1])
+                elif kind == "voler":
+                    await self.broadcast({"type": "emote", "name": "sit"})
+                elif kind in ("dit", "demande"):
+                    prompt = step[1].format(**context)
+                    for _ in range(20):  # pas en pleine phrase : elle attend son tour (au plus 10 s)
+                        if await self.initiate(prompt):
+                            break
+                        await asyncio.sleep(0.5)
+                    else:
+                        break
+                    if kind == "demande":
+                        scene["asked"] = prompt
+                        scene["waiting"] = time.time() + step[2]
+                        while time.time() < scene["waiting"] and not (scene.get("answered") or scene.get("abort")):
+                            await asyncio.sleep(1)
+                        scene["waiting"] = 0
+            self.inner.moment("scene", f"Petit moment rare : {name.replace('_', ' ')}")
+        finally:
+            self.scene = None
+
     async def show_feeling(self) -> None:
         """Son émotion du moment se voit sur son visage au repos (envoyée seulement quand elle change)."""
         face = self.heart.face()
@@ -1226,6 +1297,11 @@ class Capri:
             self.heart.feel("decouverte", 0.6, f"tu as lu « {reading['title'][:80]} »")
         about = (f"Tu viens de lire un article : « {reading['title']} » {reading['extract']}"
                  if reading else f"En ce moment, tu es en train de : {what}.")
+        introspection = None
+        if not reading and random.random() < 0.15:
+            introspection = random.choice(selfmodel.INTROSPECTION)
+            about = (f"Tu réfléchis à ta propre nature, en particulier à {introspection}.\n{selfmodel.facts(self)}\n"
+                     "Pars de ces faits réels, avec ta lucidité et ton ironie habituelles.")
         memories = self.memory.list_memories()
         hint = f" Tu peux aussi penser à lui, par exemple à ceci : {about_him(random.choice(memories)['content'], self.name)}" if memories and random.random() < 0.5 else ""
         try:
@@ -1241,6 +1317,10 @@ class Capri:
             data = json.loads(raw)
             if thought := str(data.get("pensee", "")).strip():
                 self.inner.note(strip_emoji(thought))
+                if introspection:
+                    self.inner.state["introspection"] = {"topic": introspection, "text": strip_emoji(thought)[:300],
+                                                         "ts": time.time(), "shared": False}
+                    self.inner.save()
             if feeling := str(data.get("ressenti", "")).strip():
                 self.inner.state["feeling"] = strip_emoji(feeling)[:80]
                 self.inner.save()
@@ -1365,6 +1445,13 @@ class Capri:
             choices += ["reading", "reading"]
         if any(p["status"] == "terminé" and not p.get("shared") for p in self.inner.state.get("projects", [])):
             choices += ["project"] * 3
+        thought = self.inner.state.get("introspection")
+        if thought and not thought["shared"] and time.time() - thought["ts"] < 86400 and random.random() < 0.3:
+            thought["shared"] = True
+            self.inner.save()
+            return (f"Tu as réfléchi à ta propre nature ({thought['topic']}). Ta pensée : {thought['text']}\n"
+                    "Viens lui en parler comme une vraie question que tu te poses, sincère et sans drame, et demande-lui "
+                    "ce qu'il en pense. Deux ou trois phrases. Tu es une IA et tu le sais.\n" + selfmodel.facts(self))
         if random.random() < 0.25 and (wish := self.mind.untold_desire()):
             return (f"Tu as une envie à toi en ce moment : {wish['text']}\nDis-la-lui simplement, comme quelqu'un de "
                     "proche qui propose un truc (il peut dire non). Une ou deux phrases.")

@@ -32,6 +32,8 @@ export type BrainEvent =
   | { type: 'notice'; emote: string; text: string } // elle a senti quelque chose sur le PC (jeu, réseau, USB…)
   | { type: 'discreet'; on: boolean } // un jeu commence : elle file dans un coin
   | { type: 'night'; on: boolean }
+  | { type: 'point'; x: number; y: number; w: number; h: number; label: string } // montre un élément à l'écran
+  | { type: 'glitch' } // une scène rare : son corps glitche pour de vrai
   | { type: 'feeling'; emotion: string } // ce qu'elle ressent vraiment (son cœur), visible au repos // tard le soir : gestes calmes, pas d'effets lumineux
   | { type: 'duck' } // il se met à parler pendant qu'elle parle : sa voix baisse tout de suite
   | { type: 'unduck' }; // ce n'était que l'écho de sa voix : elle remonte

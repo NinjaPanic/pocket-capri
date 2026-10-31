@@ -201,6 +201,25 @@ export class DragController {
 }
 
 /** Bordure néon autour de l'écran pendant qu'elle pilote la souris et le clavier (les clics passent à travers). */
+/** Un halo néon qui pulse autour de ce qu'elle montre (quelques secondes, les clics passent au travers). */
+export function createHighlight(bounds: Rectangle): BrowserWindow {
+  const win = new BrowserWindow({
+    ...bounds, transparent: true, frame: false, resizable: false, movable: false, focusable: false, skipTaskbar: true,
+    hasShadow: false, show: false, alwaysOnTop: true, backgroundColor: '#00000000',
+    webPreferences: { offscreen: OFFSCREEN, contextIsolation: true, sandbox: true, nodeIntegration: false, javascript: false },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(true);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+.r{position:fixed;inset:6px;border:3px solid #22f27a;border-radius:10px;box-shadow:0 0 18px #22f27a,inset 0 0 12px #22f27a88;animation:p .9s ease-in-out infinite}
+@keyframes p{50%{border-color:#ff3d8b;box-shadow:0 0 26px #ff3d8b,inset 0 0 14px #ff3d8b88;inset:2px}}
+</style></head><body><div class="r"></div></body></html>`;
+  void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  win.once('ready-to-show', () => win.showInactive());
+  return win;
+}
+
 export function createControlBorder(bounds: Rectangle, text = 'CAPRI IS DRIVING THE PC · ESC TO STOP'): BrowserWindow {
   const win = new BrowserWindow({
     ...bounds, transparent: true, frame: false, resizable: false, movable: false, focusable: false, skipTaskbar: true,
