@@ -145,7 +145,7 @@ const rad = (deg: number) => (deg * Math.PI) / 180;
  * her head (above the green band), never the band, the eyes, the mouth or the chin.
  */
 export function clipOutFace(ctx: CanvasRenderingContext2D, head: Mat, F: FaceConfig) {
-  const hw = F.bandWidth / 2 + 3, top = F.bandY - F.bandHeight / 2, mid = F.bandY + F.bandHeight / 2, bot = mid + F.chinLength + 3;
+  const hw = F.bandWidth + 4, top = F.bandY - F.bandHeight / 2, mid = F.bandY + F.bandHeight / 2, bot = mid + F.chinLength + 3;
   const pts: Pt[] = ([[-hw, top], [hw, top], [hw, mid], [hw * 0.04, bot], [-hw, mid]] as Pt[]).map((q) => head.apply(q)); // menton en pointe
   ctx.beginPath();
   ctx.rect(-1e5, -1e5, 2e5, 2e5);

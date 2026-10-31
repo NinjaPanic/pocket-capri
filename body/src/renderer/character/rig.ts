@@ -50,8 +50,7 @@ export class Rig {
     for (const b of RIG.bones) {
       const parent = b.parent ? this.world.get(b.parent)! : new Mat();
       const [px, py] = b.pivot;
-      // sa tête un peu à gauche de son corps (ses cheveux suivent)
-      let local = new Mat().translate(px + (b.name === 'head' ? HEAD_SHIFT : 0), py).rotate(((pose[b.name] ?? 0) * Math.PI) / 180);
+      let local = new Mat().translate(px, py).rotate(((pose[b.name] ?? 0) * Math.PI) / 180);
       // a bigger head (and the hair with it), grown around the neck
       if (b.name === 'head' && headScale !== 1) local = local.scale(headScale);
       const k = stretch[b.name];
@@ -156,9 +155,9 @@ export function hairPainter(ctx: CanvasRenderingContext2D, colour: string, t: nu
 
 const HEAD_ANCHOR = (faceData as unknown as { idle: { faces: { x: number; y: number; angle: number; dist: number }[] } }).idle.faces[0];
 export const POSE_KEY = (bone: string) => `p_${bone}` as const;
-/** Sa tête, décalée vers la gauche de son corps (px du dessin), et ses cheveux tournés vers la gauche (degrés) : sur le
- *  dessin d'origine, sa crinière part trop à droite. */
-export const HEAD_SHIFT = -6, HAIR_TURN = -28;
+/** Son visage, un peu à gauche de sa tête dessinée (px du dessin). Sa tête et ses cheveux restent ceux du dessin (les
+ *  tourner ouvrait des trous au cou et dans la crinière) : seul son visage est posé droit, de face, par-dessus. */
+export const FACE_SHIFT = -4;
 
 /**
  * Draw the whole rigged Capri: body pieces posed from the behaviour params plus the editor's base pose,
@@ -188,10 +187,11 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
   // the face rides the head bone
   const a = HEAD_ANCHOR;
   const at = rig.place('head', a.x, a.y);
-  const [hx, hy] = base.apply([at.x, at.y]);
+  const [hx, hy] = base.apply([at.x + FACE_SHIFT, at.y]);
   const k = Math.hypot(base.a, base.b);
   const s = (a.dist * k * F.faceScale * (F.headScale ?? 1)) / (2 * F.eyeSpacing);
-  const angle = ((a.angle + F.faceAngle) * Math.PI) / 180 * flip + at.angle * flip;
+  // droit et de face : sans la pente du dessin (a.angle), seulement ce que sa tête fait vraiment (hochement, penché)
+  const angle = (F.faceAngle * Math.PI) / 180 * flip + at.angle * flip;
   const head = new Mat().translate(hx + F.faceX * s * flip, hy + F.faceY * s).rotate(angle).scale(s * flip, s).translate(0, -F.eyeY);
   const fp = { ...p, headYaw: 0, turn: 0 };
   drawFace(ctx, head, fp, s, undefined, false, 'without');
@@ -222,11 +222,10 @@ export function poseFromParams(p: Params, t: number, base: Pose): { pose: Pose; 
   // body: lean and sway, breathing
   // (drifting noise, not sinusoids: the small life in the body never loops)
   add('torso', deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + (p.breathe - 0.5) * 1.2);
-  // head: roll, a little nod. Sur le dessin d'origine sa tête penche d'une trentaine de degrés : on la redresse,
-  // visage bien droit et de face (ses cheveux suivent la tête)
-  add('head', -HEAD_ANCHOR.angle + deg(p.headRoll) * 0.9 + p.headPitch * 8);
+  // head: roll, a little nod
+  add('head', deg(p.headRoll) * 0.9 + p.headPitch * 8);
   // hair: sways, streams behind a dash
-  add('hair', HAIR_TURN + drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
+  add('hair', drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
   // black arm (left of screen): raise lifts it over the head, spread flings it out
   // au repos, le dessin d'origine tient ce bras écarté : on le ramène le long du corps comme l'autre
   // (−30°), et le lever part de là (125° au lieu de 95° pour arriver au même endroit)

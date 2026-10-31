@@ -3,7 +3,7 @@ import vectorData from '../../../assets/desktop-sprites/vector.json';
 import { Mat, clamp } from './geometry';
 import { clipOutFace, drawFace, getFaceConfig, setFaceOutline } from './face';
 import { PALETTE as C } from './palette';
-import { HAIR_TURN, HEAD_SHIFT, Rig, drawRigged, flakePattern } from './rig';
+import { FACE_SHIFT, Rig, drawRigged, flakePattern } from './rig';
 import type { Params } from './params';
 import { noise1 } from './motion';
 
@@ -30,6 +30,8 @@ const PERCH_SEAT_DROP = 80;
 // the seated drawing next to the standing body: a little smaller, with the same bigger head (face + hair) as the
 // articulated body has (F.headScale), otherwise her body looks too big for her head when she sits
 const PERCH_SCALE = 0.88;
+/** Assise : son visage, un peu plus bas sur la tête dessinée (px du dessin). */
+const PERCH_FACE_DROP = 4;
 /** Distance between her eyes on the standing drawing (sprite px): the reference size of her face. */
 const IDLE_EYES = FACES.idle.faces[0]!.dist;
 /** Lowest point of her feet on each drawing (sprite px from the top), measured on the sheets: it goes on the ledge. */
@@ -206,13 +208,11 @@ export class SpriteBody {
     // hair scaled up around her head (in sprite px, the current transform must map the sprite)
     // (the hair no more than the articulated body's head: on the seated drawing it is already spread wide)
     const hairGrow = Math.min(grow, F.headScale ?? 1);
-    // en marchant, sa tête reste droite et de face comme au repos : ses cheveux tournent autour de son visage
-    const upright = this.sheet === 'walk' && !!anchor;
+    // son visage droit et de face sur tous ses dessins, au même endroit qu'au repos (cheveux et tête : ceux du dessin)
+    const upright = this.sheet !== 'sleep'; // endormie, sa tête repose penchée
     const bigHair = (path: Path2D) => {
-      if (!anchor) { paintHair(path); return; }
-      ctx.save();
-      if (upright) { ctx.translate(anchor.x + HEAD_SHIFT, anchor.y); ctx.rotate(((-anchor.angle + HAIR_TURN) * Math.PI) / 180); ctx.translate(-anchor.x, -anchor.y); }
-      if (Math.abs(hairGrow - 1) >= 0.01) { ctx.translate(anchor.x, anchor.y); ctx.scale(hairGrow, hairGrow); ctx.translate(-anchor.x, -anchor.y); }
+      if (Math.abs(hairGrow - 1) < 0.01 || !anchor) { paintHair(path); return; }
+      ctx.save(); ctx.translate(anchor.x, anchor.y); ctx.scale(hairGrow, hairGrow); ctx.translate(-anchor.x, -anchor.y);
       paintHair(path); ctx.restore();
     };
     const flip = inp.facing < 0 ? -1 : 1;
@@ -270,7 +270,8 @@ export class SpriteBody {
     // her live face over the sprite's head, held at the last known spot on frames without one
     if (!anchor) return true;
     this.lastFace = anchor;
-    const [hx, hy] = base.apply([anchor.x + (upright ? HEAD_SHIFT : 0), anchor.y]);
+    // assise, son visage tombait un peu haut sur la tête dessinée : un peu plus bas
+    const [hx, hy] = base.apply([anchor.x + (upright ? FACE_SHIFT : 0), anchor.y + (this.sheet === 'perch' ? PERCH_FACE_DROP : 0)]);
     const s = (anchor.dist * k * F.faceScale * grow) / (2 * F.eyeSpacing); // screen px per face unit
     const angle = (((upright ? 0 : anchor.angle) + F.faceAngle) * Math.PI) / 180 * flip + p.headRoll * 0.4;
     const head = new Mat().translate(hx + F.faceX * s * flip, hy + F.faceY * s).rotate(angle).scale(s * flip, s).translate(0, -F.eyeY);
@@ -287,6 +288,7 @@ export class SpriteBody {
       // other side across her face, never across her body
       ctx.save();
       ctx.beginPath(); ctx.arc(hx, hy, s * (F.bandWidth + 14), 0, Math.PI * 2); ctx.clip();
+      clipOutFace(ctx, head, F); // jamais sur son masque ni ses yeux : son visage reste entier et de face
       ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
       ctx.beginPath(); ctx.rect(0, 0, anchor.x - anchor.dist * 0.15 * grow, info.frameH); ctx.clip();
       bigHair(vec.get('hair')!);
