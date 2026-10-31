@@ -135,7 +135,7 @@
     faceAngle: 0,
     hairFront: 1,
     skeleton: 1,
-    skin: 0,
+    skin: 1,
     faceTraced: 1,
     eyeMirror: 1,
     lashScale: 1.3,
@@ -1992,7 +1992,8 @@
       ["faceY", "D\xE9calage haut / bas", -20, 20, 0.5],
       ["faceAngle", "Rotation du visage", -60, 60, 1],
       ["hairFront", "Cheveux devant le visage (0 / 1)", 0, 1, 1],
-      ["skeleton", "Corps articul\xE9 (1) / images (0)", 0, 1, 1]
+      ["skeleton", "Corps articul\xE9 (1) / images (0)", 0, 1, 1],
+      ["skin", "Corps souple, ton d\xE9coupage (1) / ancien corps (0)", 0, 1, 1]
     ]],
     ["Pose de base (corps articul\xE9)", [
       ["p_torso", "Buste", -40, 40, 1],

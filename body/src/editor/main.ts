@@ -68,6 +68,7 @@ const GROUPS: [string, ([Num, string, number, number, number] | [Col, string])[]
     ['faceAngle', 'Rotation du visage', -60, 60, 1],
     ['hairFront', 'Cheveux devant le visage (0 / 1)', 0, 1, 1],
     ['skeleton', 'Corps articulé (1) / images (0)', 0, 1, 1],
+    ['skin', 'Corps souple, ton découpage (1) / ancien corps (0)', 0, 1, 1],
   ]],
   ['Pose de base (corps articulé)', [
     ['p_torso', 'Buste', -40, 40, 1],
