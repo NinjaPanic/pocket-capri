@@ -1734,12 +1734,17 @@
       }
     }
     /** Draw every piece in depth order; ctx must already map sprite px to the screen. */
-    draw(ctx2, pose, stretch, colour, paintHair, headScale = 1, shield) {
+    draw(ctx2, pose, stretch, colour, paintHair, headScale = 1, shield, upright) {
       this.solve(pose, stretch, headScale);
       for (const b of [...RIG.bones].sort((a, c) => a.z - c.z)) {
         const m = this.world.get(b.name);
         ctx2.save();
         ctx2.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+        if (b.name === "head" && upright) {
+          ctx2.translate(upright.x + FACE_SHIFT, upright.y);
+          ctx2.rotate(upright.angle);
+          ctx2.translate(-upright.x, -upright.y);
+        }
         const paths = this.bonePaths(b);
         for (const cls of LAYER_ORDER) {
           const path = paths.get(cls);
@@ -1749,7 +1754,7 @@
             continue;
           }
           ctx2.fillStyle = colour[cls];
-          const guard = shield && (b.name === "head" || b.name === "hair");
+          const guard = shield && b.name === "hair";
           if (guard) {
             ctx2.save();
             shield(ctx2);
@@ -1867,7 +1872,7 @@
     ctx2.save();
     ctx2.transform(base.a, base.b, base.c, base.d, base.e, base.f);
     const paint = hairPainter(ctx2, F.hairColor, t, rig2.frameW, rig2.frameH);
-    rig2.draw(ctx2, pose, stretch, colour, paint, F.headScale ?? 1, shield);
+    rig2.draw(ctx2, pose, stretch, colour, paint, F.headScale ?? 1, shield, { x: a.x, y: a.y, angle: -a.angle * Math.PI / 180 });
     ctx2.restore();
     const fp = { ...p, headYaw: 0, turn: 0 };
     drawFace(ctx2, head, fp, s, void 0, false, "without");

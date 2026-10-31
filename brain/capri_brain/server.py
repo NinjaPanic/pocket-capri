@@ -765,6 +765,9 @@ class Capri:
         try:
             if turn:
                 turn.mark("modele_envoye")
+            if self.voice_cfg.get("langue", "en") == "en" and "[LANGUAGE]" not in str(messages[-1].get("content", "")):
+                # tout ce qu'elle dit passe par ici (réponses, initiatives, scènes, réactions) : en anglais, sans exception
+                messages = [*messages, {"role": "system", "content": "[LANGUAGE] Speak English only: not a single word of French."}]
             stream = self.llm.stream(messages)
             if self.voice:
                 self.voice.thinking += 1

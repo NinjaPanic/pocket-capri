@@ -65,20 +65,23 @@ export class Rig {
 
   /** Draw every piece in depth order; ctx must already map sprite px to the screen. */
   draw(ctx: CanvasRenderingContext2D, pose: Pose, stretch: Pose, colour: Record<string, string>, paintHair: (p: Path2D) => void, headScale = 1,
-    shield?: (ctx: CanvasRenderingContext2D) => void) {
+    shield?: (ctx: CanvasRenderingContext2D) => void, upright?: { x: number; y: number; angle: number }) {
     this.solve(pose, stretch, headScale);
     for (const b of [...RIG.bones].sort((a, c) => a.z - c.z)) {
       const m = this.world.get(b.name)!;
       ctx.save();
       ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+      // sa petite tête dessinée (masque, pointes noires) penche sur le dessin : on la redresse autour de son visage,
+      // pour qu'elle reste collée au visage posé droit (la crinière, elle, ne bouge pas : pas de trous)
+      if (b.name === 'head' && upright) { ctx.translate(upright.x + FACE_SHIFT, upright.y); ctx.rotate(upright.angle); ctx.translate(-upright.x, -upright.y); }
       const paths = this.bonePaths(b);
       for (const cls of LAYER_ORDER) {
         const path = paths.get(cls);
         if (!path) continue;
         if (cls === 'hair') { paintHair(path); continue; }
         ctx.fillStyle = colour[cls];
-        // la tête dessinée (penchée) et les mèches noires restent hors de son visage, posé droit par-dessus
-        const guard = shield && (b.name === 'head' || b.name === 'hair');
+        // les mèches noires de la crinière ne passent pas sur son visage
+        const guard = shield && b.name === 'hair';
         if (guard) { ctx.save(); shield(ctx); }
         ctx.fill(path, 'evenodd'); // (plus de liseré noir sur le bras rose levé : il dessinait des bordures noires sales)
         if (guard) ctx.restore();
@@ -197,7 +200,7 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
   ctx.save();
   ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
   const paint = hairPainter(ctx, F.hairColor, t, rig.frameW, rig.frameH);
-  rig.draw(ctx, pose, stretch, colour, paint, F.headScale ?? 1, shield);
+  rig.draw(ctx, pose, stretch, colour, paint, F.headScale ?? 1, shield, { x: a.x, y: a.y, angle: (-a.angle * Math.PI) / 180 });
   ctx.restore();
   const fp = { ...p, headYaw: 0, turn: 0 };
   drawFace(ctx, head, fp, s, undefined, false, 'without');
