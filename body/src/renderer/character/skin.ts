@@ -182,6 +182,9 @@ const FOLLOW: [string, string, number, number][] = [
 const lagged = new Map<string, number>();
 let lastT = 0;
 
+/** De combien ses pieds pivotent pour être à plat (degrés, vers l'extérieur). */
+const FOOT_FLAT = 62;
+
 /** Les points qui peuvent toucher le sol (pieds, genoux, hanches, mains) : le plus bas se pose sur son appui. */
 const GROUND = SKIN.bones.filter((b) => /foot|shin|thigh|hand/.test(b.name));
 
@@ -192,9 +195,14 @@ export function drawSkinned(ctx: CanvasRenderingContext2D, skin: SkinBody, base0
   // les mêmes poses que son corps d'avant (poseFromParams), sans les corrections propres à l'ancien dessin
   const { pose } = poseFromParams(p, t, {});
   pose.upperArmL = (pose.upperArmL ?? 0) - ARM_L_REST;
-  pose.footL = (pose.footL ?? 0) - FOOT_REST.L;
-  pose.footR = (pose.footR ?? 0) - FOOT_REST.R;
-  const stretch: Pose = {};
+  // ses pieds : le dessin est sur la pointe des pieds ; on les pose à plat, tournés vers l'extérieur, un peu raccourcis
+  pose.footL = (pose.footL ?? 0) - FOOT_REST.L + FOOT_FLAT;
+  pose.footR = (pose.footR ?? 0) - FOOT_REST.R - FOOT_FLAT;
+  const stretch: Pose = { footL: 0.8, footR: 0.8 };
+  // ses membres s'étirent un peu quand elle tend les bras (comme dans la série : élastique, jamais raide)
+  const reachL = Math.max(p.armLRaise, p.armSpread), reachR = Math.max(p.armRRaise, p.armSpread);
+  stretch.upperArmL = 1 + reachL * 0.07; stretch.forearmL = 1 + reachL * 0.09;
+  stretch.upperArmR = 1 + reachR * 0.07; stretch.forearmR = 1 + reachR * 0.09;
   let bob = 0;
   if (walking) {
     // la marche, vue de face. La jambe qui avance : sa cuisse vient vers nous (très raccourcie), son genou monte et
@@ -205,8 +213,9 @@ export function drawSkinned(ctx: CanvasRenderingContext2D, skin: SkinBody, base0
     const L = Math.pow(up(s), 0.8), R = Math.pow(up(-s), 0.8);
     stretch.thighL = 1 - L * 0.42; stretch.thighR = 1 - R * 0.42;
     stretch.shinL = 1 - L * 0.12; stretch.shinR = 1 - R * 0.12;
-    pose.thighL = (pose.thighL ?? 0) + L * 6; pose.shinL = (pose.shinL ?? 0) - L * 14; pose.footL = (pose.footL ?? 0) + L * 18;
-    pose.thighR = (pose.thighR ?? 0) - R * 6; pose.shinR = (pose.shinR ?? 0) + R * 14; pose.footR = (pose.footR ?? 0) - R * 18;
+    // le pied qui se lève pointe un peu vers le bas, puis se repose à plat
+    pose.thighL = (pose.thighL ?? 0) + L * 6; pose.shinL = (pose.shinL ?? 0) - L * 14; pose.footL = (pose.footL ?? 0) - L * 30;
+    pose.thighR = (pose.thighR ?? 0) - R * 6; pose.shinR = (pose.shinR ?? 0) + R * 14; pose.footR = (pose.footR ?? 0) + R * 30;
     pose.upperArmL = (pose.upperArmL ?? 0) + s * 9; pose.upperArmR = (pose.upperArmR ?? 0) + s * 9;
     pose.forearmL = (pose.forearmL ?? 0) + s * 6; pose.forearmR = (pose.forearmR ?? 0) + s * 6;
     pose.torso = (pose.torso ?? 0) - s * 2.5; pose.head = (pose.head ?? 0) + s * 1.5; pose.hair = (pose.hair ?? 0) + Math.cos(ph) * 1.5;
@@ -226,6 +235,12 @@ export function drawSkinned(ctx: CanvasRenderingContext2D, skin: SkinBody, base0
   // son point le plus bas reste posé là où ses pieds se posaient (assise, à genoux, penchée…)
   let low = -Infinity;
   for (const b of GROUND) low = Math.max(low, skin.place(b.name, b.end[0], b.end[1]).y, skin.place(b.name, b.pivot[0], b.pivot[1]).y);
+  // assise au bord (hipDrop élevé) : ses fesses se posent sur le rebord, ses jambes pendent
+  const onEdge = Math.max(0, Math.min(1, (p.hipDrop - 110) / 40));
+  if (onEdge > 0) {
+    const seat = skin.place('torso', SKIN.bones[0].pivot[0], SKIN.bones[0].pivot[1]).y + 45;
+    low = low + (seat - low) * onEdge;
+  }
   const drop = (SKIN.feet - low) * S + bob;
   const base = base0.translate(0, drop);
   const T = ctx.getTransform();
