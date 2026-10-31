@@ -134,6 +134,9 @@ def main():
     fx, fy, fd = face["x"], face["y"], face["dist"]
     # tout ce qui est cheveux autour de son visage (mèches roses, pointes noires) : devant lui, comme sur le dessin
     front = hm & (xx >= fx - 1.7 * fd) & (xx <= fx + 1.7 * fd) & (yy >= fy - 1.4 * fd) & (yy <= fy + 1.2 * fd)
+    # sauf la mèche rose de droite (seules ses pointes noires restent devant de ce côté)
+    pinkish = (ha[..., 0] > 150) & (ha[..., 1] < 110)
+    front &= ~((xx > fx + 0.3 * fd) & pinkish)
     # …et la mèche sombre à bout rond, à gauche, qui descend devant l'épaule noire
     front |= hm & (xx >= 420) & (xx <= 512) & (yy >= 520) & (yy <= 830)
 
@@ -141,7 +144,7 @@ def main():
     parts = []
     jobs = [(bone, f, parent, z, masks[bone][0], masks[bone][1], False) for bone, (f, parent, z) in BONES.items()]
     if front.any():
-        jobs.append(("hair", "meches-devant", "head", 100, ha, front, True))
+        jobs.append(("hair", "meches-devant", "head", 5, ha, front, True))  # devant le visage, mais sous les bras
     for bone, f, parent, z, a, m in [(j[0], j[1], j[2], j[3], j[4], j[5]) for j in sorted(jobs, key=lambda j: j[3])]:
         is_front = f == "meches-devant" or bone in FRONT
         a = a.copy()
