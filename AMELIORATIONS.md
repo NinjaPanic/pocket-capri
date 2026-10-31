@@ -349,6 +349,13 @@ balayage et une pluie de glyphes, un éclair blanc, puis ouvre grand les bras. *
 un coucou, elle se défait de la tête aux pieds en glyphes qui s'envolent, la dernière ligne se replie en un point qui
 s'éteint ; ensuite seulement tout s'arrête. Rendus vérifiés image par image.
 
+**Puis sur tout l'écran** (une fenêtre transparente par-dessus tout, les clics passent au travers, rien n'est lu à
+l'écran) : à l'arrivée, des crochets de visée se plantent dans les coins, une bande rouge balaie l'écran, une pluie de
+glyphes tombe partout puis est aspirée en spirale vers sa place ; éclair, onde de choc qui traverse l'écran, « EN
+LIGNE », et elle s'y construit. Au départ, après son coucou, ses glyphes jaillissent sur tout l'écran, puis l'écran
+entier s'éteint comme une vieille télé (volets noirs, ligne blanche, point, « SIGNAL PERDU ») avant que le bureau
+revienne. Inspiré de l'idée d'une entrée plein écran, mais une mise en scène à elle.
+
 **Quota en ligne** : le passage au modèle local quand le quota est plein vaut pour tous les services en ligne (Groq,
 Gemini, OpenAI, Anthropic, Mistral, xAI, DeepSeek, OpenRouter), et aussi quand il n'y a plus de crédit (erreur 402).
 

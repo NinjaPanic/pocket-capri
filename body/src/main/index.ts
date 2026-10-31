@@ -24,6 +24,7 @@ import { clampToDisplays, displayFor, type Rect } from './desktop/displays';
 import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, createBubble, BUBBLE_WIDTH, createPossession, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
 import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, sendToBack, win32Status, windowRect } from './desktop/win32';
 import { Games } from './games';
+import { createScene, INTRO_REVEAL_MS, SCENE_MS } from './scene';
 
 const TEST = process.env.CAPRI_TEST === '1';
 if (process.env.CAPRI_USER_DATA) app.setPath('userData', path.resolve(process.env.CAPRI_USER_DATA));
@@ -176,9 +177,16 @@ function createCharacter() {
     if (!charWin) return;
     charWin.setBounds(clampToDisplays({ ...target, ...herSize() }, displaysNow()));
     setTimeout(() => { settled = true; }, 500);
-    if (!userHidden) {
-      if (!TEST) cue({ type: 'boot' }); // elle s'allume
-      reveal(charWin);
+    if (!userHidden && TEST) reveal(charWin);
+    else if (!userHidden) {
+      // son arrivée sur tout l'écran : les glyphes convergent vers sa place, puis elle s'y construit
+      const b = charWin.getBounds();
+      createScene(screen.getDisplayMatching(b).bounds, 'intro', { x: b.x + b.width / 2, y: b.y + b.height * 0.45 }, lang === 'en');
+      setTimeout(() => {
+        if (!charWin || charWin.isDestroyed() || userHidden) return;
+        cue({ type: 'boot' });
+        reveal(charWin);
+      }, INTRO_REVEAL_MS);
     }
     setTimeout(() => sendSurface(true), 600);
   });
@@ -947,7 +955,14 @@ async function farewell() {
   games?.stop();
   void showBubble(lang === 'en' ? 'See you soon…' : 'À plus tard…');
   cue({ type: 'farewell' });
-  await new Promise<void>((resolve) => { farewellDone = resolve; setTimeout(resolve, 2800); });
+  // après son coucou, ses glyphes jaillissent sur tout l'écran et l'écran s'éteint comme une vieille télé
+  const b = charWin.getBounds();
+  const scene = new Promise<void>((resolve) => setTimeout(() => {
+    createScene(screen.getDisplayMatching(b).bounds, 'outro', { x: b.x + b.width / 2, y: b.y + b.height * 0.45 }, lang === 'en');
+    setTimeout(resolve, SCENE_MS.outro);
+  }, 850));
+  const her = new Promise<void>((resolve) => { farewellDone = resolve; setTimeout(resolve, 2800); });
+  await Promise.all([scene, her]);
   farewellDone = null;
   bubbleWin?.hide();
 }
