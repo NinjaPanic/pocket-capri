@@ -292,6 +292,27 @@ fréquence de ses venues inchangée par défaut et réglable dans le hub.
 
 ---
 
+### 2.12 Mémoire à long terme et côté fun (31 octobre)
+
+**Résumés de vos journées.** Chaque journée passée où vous vous êtes parlé devient un court résumé (2 à 4 phrases, de
+son point de vue, sans invention), écrit en arrière-plan quand c'est calme et indexé pour la recherche (table
+`summaries`). En conversation, elle a les deux derniers jours en tête ; si tu dis « tu te souviens… », « l'autre
+jour », « la semaine dernière », elle va chercher la journée passée qui ressemble le plus. « Le 3 mars ? » répond avec
+le résumé de ce jour-là. Les résumés apparaissent dans la chronologie du hub (« ▤ notre journée »). Vérifié sur une
+copie de la base : 3 journées résumées fidèlement.
+
+**Mini-jeux** (menu de l'icône › Jouer, ou à la voix : « on joue à cache-cache », « jeu de réflexes ») :
+- cache-cache : elle se glisse derrière une de tes fenêtres en dépassant un peu ; clique sur elle avant une minute ;
+- réflexes : elle apparaît 8 fois, de plus en plus vite ; touche-la avant qu'elle reparte.
+Les records sont gardés (`jeux.json`). La déplacer à la main ou la cacher arrête la partie.
+
+**Petits plaisirs visuels :**
+- sur un long trajet en vol, parfois (35 %), elle voyage changée en étoile filante et reprend forme dans une gerbe ;
+- quand elle pilote le PC, des glyphes de hacker défilent derrière elle ;
+- après un quart d'heure de sieste, elle va dormir dans un coin de l'écran.
+
+Rendus vérifiés image par image (hors écran). Tests : `test_summaries.py`, `games.test.ts`.
+
 ## 3. Audit de l'existant (vérifié dans le code)
 
 Légende : ✅ présent et fonctionnel · 🟡 présent, à améliorer · 🟠 partiel · ❌ absent · ➕ ajouté dans ce lot · ⛔ non pertinent
