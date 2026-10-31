@@ -8,14 +8,14 @@ import type { Params } from './params';
 export type PostureName = 'stand' | 'contrapposto' | 'sit_edge' | 'air_sit' | 'recline' | 'power_stance' | 'peek_left' | 'peek_right' | 'balance'
   | 'fly' | 'float_lazy' | 'cross_legged' | 'kneel' | 'dangle_legs' | 'lie_belly' | 'hug_knees'
   | 'crouch' | 'knee_up' | 'lean_back' | 'hands_hips' | 'one_leg' | 'legs_crossed' | 'lie_side';
-export type Surface = 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right';
+export type Surface = 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' | 'ceiling'; // ceiling: à l'envers, pieds au haut de l'écran
 
 export interface Posture { name: PostureName; source: string; pose: Partial<Params>; surfaces: Surface[] }
 
 export const POSTURES: Record<PostureName, Posture> = {
-  stand: { name: 'stand', source: 'W1, B 4:08 (front, arms hanging long)', surfaces: ['taskbar', 'window', 'air'], pose: {} },
+  stand: { name: 'stand', source: 'W1, B 4:08 (front, arms hanging long)', surfaces: ['taskbar', 'window', 'air', 'ceiling'], pose: {} },
   contrapposto: {
-    name: 'contrapposto', source: 'B 3:33 (weight on one leg, hip out, arms away from body)', surfaces: ['taskbar', 'window', 'air'],
+    name: 'contrapposto', source: 'B 3:33 (weight on one leg, hip out, arms away from body)', surfaces: ['taskbar', 'window', 'air', 'ceiling'],
     pose: { thighL: 7, kneeL: 0, thighR: -8, kneeR: 18, foreR: 0.93, hip: 0.9, bodyRot: -0.035, armLRaise: 0.07, armRRaise: 0.12, headRoll: 0.06 },
   },
   sit_edge: {
@@ -130,6 +130,8 @@ export function posturesFor(surface: Surface): [PostureName, number][] {
     case 'window': return [['sit_edge', 3], ['dangle_legs', 3], ['recline', 1.5], ['balance', 1], ['cross_legged', 1.5], ['kneel', 1], ['lie_belly', 1],
       ['crouch', 1], ['knee_up', 1.5], ['lean_back', 1.5], ['hands_hips', 0.6], ['legs_crossed', 0.6], ['lie_side', 1]];
     case 'edge_left': return [['peek_left', 1]];
+    // au plafond, la tête en bas : debout (à l'envers), elle prend la pose
+    case 'ceiling': return [['stand', 2], ['contrapposto', 1.5], ['hands_hips', 1], ['legs_crossed', 1]];
     case 'edge_right': return [['peek_right', 1]];
     // in the air she never sits on nothing: she floats, lounges or just hangs there
     default: return [['float_lazy', 3], ['recline', 2], ['contrapposto', 2], ['stand', 1.5], ['power_stance', 0.5],

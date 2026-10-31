@@ -253,6 +253,8 @@ const SETTINGS = [
     ["spontane_minutes", "Phrase spontanée après", "minutes de silence, 0 = jamais", "number", 0, 600],
     ["reactions_pc", "Réagir à ce qui se passe sur le PC", "jeu lancé, réseau, clé USB, processeur qui chauffe, longue session", "bool"],
     ["liberer_gpu_en_jeu", "Libérer la carte graphique pendant un jeu", "son modèle revient quand le jeu se ferme", "bool"],
+    ["curiosite", "Explorer des sujets d'elle-même", "Wikipédia, lecture seule", "bool"],
+    ["curiosite_par_jour", "Explorations par jour", "au plus", "number", 0, 10],
   ]],
   ["Personnalité", "Son caractère avec toi.", "personnalite", [
     ["sarcasme", "Sarcasme", "0 = douce, 1 = piquante", "range", 0, 1, 0.05],
@@ -479,6 +481,7 @@ loaders.etat = async () => {
   if (s.inner) renderInner(s.inner, s.coeur);
   renderReminders(await api("/api/rappels"));
   renderTimeline(await api("/api/chronologie"));
+  renderDiscoveries(await api("/api/decouvertes"));
   const stats = $("stats");
   stats.replaceChildren();
   for (const [k, v] of [["Cerveau", s.status], ["Modèle", s.model], ["Voix", s.voice], ["Humeur", s.mood], ["Souvenirs", s.memories],
@@ -489,8 +492,32 @@ loaders.etat = async () => {
 const EMO = { joie: "Joie", curiosite: "Curiosité", ennui: "Ennui", fatigue: "Fatigue", irritation: "Irritation", sarcasme: "Sarcasme",
   surprise: "Surprise", fierte: "Fierté", jalousie: "Jalousie", tendresse: "Tendresse", mefiance: "Méfiance", excitation: "Excitation", tristesse: "Tristesse" };
 const REL = { familiarite: "Familiarité", confiance: "Confiance", complicite: "Complicité", habitude: "Habitude", taquinerie: "Taquinerie", jalousie: "Jalousie" };
+/** Ses découvertes (Wikipédia), avec la source ; il peut lui proposer un sujet. */
+function renderDiscoveries(d) {
+  const card = el("div", "card");
+  card.append(el("h2", null, "Ses découvertes"), el("p", "sub", "Ce qu'elle explore par curiosité (Wikipédia, lecture seule)."));
+  const ask = el("input"); ask.placeholder = LANG === "en" ? "Suggest a topic…" : "Propose-lui un sujet…";
+  ask.onkeydown = async (e) => {
+    if (e.key !== "Enter" || !ask.value.trim()) return;
+    await fetch("/api/decouvertes/sujet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sujet: ask.value.trim() }) });
+    ask.value = ""; loaders.etat();
+  };
+  card.append(ask);
+  if (d.proposed.length) card.append(el("p", "sub", (LANG === "en" ? "Waiting: " : "En attente : ") + d.proposed.join(", ")));
+  const ul = el("ul", "list");
+  if (!d.discoveries.length) ul.append(el("li", "empty", "Rien exploré pour l'instant."));
+  for (const it of d.discoveries.slice(0, 12)) {
+    const l = el("li"), a = el("a", "meta", "source");
+    a.href = it.sources[0]; a.target = "_blank"; a.rel = "noopener";
+    l.append(el("span", "txt", `${it.title} — ${it.summary}`), el("span", "meta", `${"★".repeat(it.interest)} · ${time(it.ts)}`), a);
+    ul.append(l);
+  }
+  card.append(ul);
+  $("innerCards").append(card);
+}
+
 /** Votre histoire : du plus récent au plus ancien, chaque moment avec son type. */
-const KINDS = { debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
+const KINDS = { decouverte: "◈ exploré", projet: "★ projet", debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
 function renderTimeline(items) {
   const card = el("div", "card timeline");
   card.append(el("h2", null, "Votre histoire"), el("p", "sub", "Ce qui s'est vraiment passé entre vous. Les pensées sont les siennes, pas des faits."));

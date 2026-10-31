@@ -34,7 +34,8 @@ export function clampToDisplays(r: Rect, displays: DisplayLike[], minVisible = 8
   const d = displayFor(r, displays).workArea;
   const vis = Math.min(minVisible, r.width, r.height);
   const x = Math.min(Math.max(r.x, d.x - r.width + vis), d.x + d.width - vis);
-  const y = Math.min(Math.max(r.y, d.y - r.height * 0.25), d.y + d.height - vis);
+  // (au plafond, la tête en bas, ses pieds retournés touchent le haut : sa fenêtre dépasse d'un peu plus d'un quart)
+  const y = Math.min(Math.max(r.y, d.y - r.height * Math.max(0.25, 1 - SEAT_RATIO + 0.01)), d.y + d.height - vis);
   return { ...r, x: Math.round(x), y: Math.round(y) };
 }
 

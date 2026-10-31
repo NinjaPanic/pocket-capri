@@ -79,5 +79,8 @@ spontane_heures = [9, 23]
 reactions_pc = true
 # Pendant un jeu, son modèle quitte la carte graphique (~6 Go rendus au jeu) et revient à la fin du jeu.
 liberer_gpu_en_jeu = true
+# Sa curiosité : elle explore d'elle-même des sujets sur Wikipédia (lecture seule) et t'en parle.
+curiosite = true
+curiosite_par_jour = 3
 # Ses heures « de nuit » : voix plus basse, gestes calmes, pas d'effets lumineux.
 nuit = [23, 7]

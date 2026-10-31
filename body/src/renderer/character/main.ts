@@ -57,6 +57,7 @@ let dragging = false;
 let forced: Partial<Params> | null = null;
 let surface: Surface = 'taskbar';
 let dashing = 0; // pose override for previews/tests only
+let flipAngle = 0, flipV = 0; // la tête en bas (au plafond) : angle de son corps, et sa vitesse
 
 const fx = new TeleportFx(() => document.createElement('canvas'));
 const model = new CapriModel();
@@ -93,6 +94,7 @@ const roamer = new Roamer({
   clip: (name) => { if (clipByName(name)) behavior.playClip(name, 'action'); },
   teleport: () => void api.invoke('teleport:now', 'auto').catch(() => undefined),
   land: () => void api.invoke('char:land').catch(() => undefined),
+  ceiling: () => void api.invoke('char:ceiling').catch(() => undefined),
 });
 const blinker = new Blinker();
 // her window's own motion (roaming, thrown, dragged): hair trails, impacts squash her, afterimages when fast
@@ -133,6 +135,7 @@ function onBrain(e: BrainEvent) {
 }
 /** A pose or gesture by name (menu, or what she is doing on her own). */
 function emote(name: string) {
+  if (name === 'ceiling') { roamer.halt(20_000); void api.invoke('char:ceiling').catch(() => undefined); return; }
   if (name === 'walk' || name === 'fly' || name === 'spin') { roamer.command(name, roamWorld(false)); return; }
   const e = EMOTE_MAP[name];
   // a seated position asked while she is in the air: she first flies to the top of a window (or the taskbar)
@@ -207,6 +210,7 @@ function roamWorld(speaking: boolean) {
     enabled: !!settings?.behavior.idlePeek && !settings.behavior.doNotDisturb && !quiet,
     busy: speaking || dragging || fx.active || fx.hidden || paused || phase !== 'idle' || !replyDone || !!pointer || workPose !== null,
     surface, ledge, me, activeWindow: activeWin, work: workArea, perches: perchSpots, seatRatio: SEAT_RATIO, userIdleSec: idleSec,
+    energy: settings?.behavior.energy ?? 1,
   };
 }
 function setPaused(p: boolean) {
@@ -239,6 +243,8 @@ function tick(dt: number) {
     surface, dashing: walk, held: dragging,
   });
   if (roam.pose) Object.assign(target, roam.pose);
+  // la tête en bas, ses bras « levés » pendent vers le sol, et ses cheveux tombent
+  if (surface === 'ceiling' && !dragging) { target.armLRaise = Math.max(target.armLRaise, 0.85); target.armRRaise = Math.max(target.armRRaise, 0.8); target.armSpread = Math.max(target.armSpread, 0.2); target.hairWind = Math.max(target.hairWind, 0.5); }
   const b = blinker.update(dt, { drowsy: target.sleep, suppressed: behavior.state === 'sleeping' });
   target.blinkL = Math.max(target.blinkL, b);
   target.blinkR = Math.max(target.blinkR, b);
@@ -254,7 +260,8 @@ function tick(dt: number) {
   p.mouthOpen = Math.max(0, speaking ? level : p.mouthOpen); // lip-sync wins over gesture clips
 
   const teleporting = fx.active || fx.hidden;
-  model.faceToward(facingNow(roam.dir, p));
+  // retournée au plafond, la gauche et la droite s'inversent aussi : elle regarde toujours où elle va
+  model.faceToward(facingNow(roam.dir, p) * (surface === 'ceiling' ? -1 : 1));
   if (model.stutter > 0 && !teleporting) { model.stutter--; return; } // glitch stutter: hold the last image a few frames
   // only explicit one-off bursts glitch her (not moods or thinking, which used to glitch constantly)
   const glitch = !teleporting && settings.character.glitchEffects && model.burst > 0;
@@ -262,6 +269,14 @@ function tick(dt: number) {
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, canvas.width, canvas.height);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // au plafond, tout son corps tourne d'un demi-tour autour du centre de sa fenêtre : ses pieds passent en haut.
+  // Le retournement prend ~0,4 s (amorti, un léger dépassement) : jamais de saut brutal d'une pose à l'autre
+  const flipTo = surface === 'ceiling' && !dragging ? Math.PI : 0;
+  flipV += ((flipTo - flipAngle) * 90 - flipV * 15) * dt;
+  flipAngle += flipV * dt;
+  if (Math.abs(flipTo - flipAngle) < 0.002 && Math.abs(flipV) < 0.01) { flipAngle = flipTo; flipV = 0; }
+  // à mi-retournement elle est couchée en travers de sa fenêtre étroite : un peu plus petite le temps du tour
+  if (flipAngle) { const sc = 1 - 0.3 * Math.abs(Math.sin(flipAngle)); g.translate(W / 2, H / 2); g.rotate(flipAngle); g.scale(sc, sc); g.translate(-W / 2, -H / 2); }
   lastP = p;
   // the hand-drawn sprite body with her live face; the traced model when chosen in the editor or while sheets load
   const drewSprite = getFaceConfig().spriteBody >= 0.5 && sprite.draw(g, p, dt, {

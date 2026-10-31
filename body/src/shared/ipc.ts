@@ -52,7 +52,7 @@ export type CharacterCue =
   | { type: 'clip'; name: string }
   | { type: 'landed' } // elle vient d'atterrir après une chute (genoux qui plient, récupération)
   | { type: 'touch'; kind: 'clics' | 'lancee' } // ce qu'on lui fait, transmis à son cerveau (ses émotions)
-  | { type: 'surface'; surface: 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' }
+  | { type: 'surface'; surface: 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' | 'ceiling' }
   | { type: 'dash'; dir: -1 | 1 | 0 }
   | { type: 'brain'; command: 'toggleMic' | 'stop' } // her Python brain: mic on/off, cut her voice
   | { type: 'ledge'; ledge: { left: number; right: number } | null; me: { x: number; y: number; width: number; height: number } } // what she stands on, and where she is (DIP)
@@ -164,6 +164,7 @@ export interface InvokeMap {
   'char:control': [boolean, void];
   'char:step': [{ dx: number; dy: number }, void];
   'char:land': [void, void];
+  'char:ceiling': [void, void];
   'connection:check': [void, ConnectionStatus];
 }
 export type InvokeChannel = keyof InvokeMap;
@@ -174,7 +175,7 @@ export const INVOKE_CHANNELS: InvokeChannel[] = [
   'action:respond', 'provider:test', 'provider:models', 'claude:status', 'claude:signin', 'claude:code', 'claude:signout', 'diagnostics:get', 'logs:tail', 'app:openDataFolder',
   'app:resetAll', 'app:quit', 'app:restart', 'apps:pick', 'folders:pick', 'panel:open', 'panel:close',
   'voice:ptt', 'char:hit', 'char:drag', 'char:click', 'char:menu', 'char:speechState', 'char:audio',
-  'char:micError', 'char:fps', 'tts:fetch', 'connection:get', 'connection:check', 'teleport:now', 'char:teleport', 'char:control', 'char:step', 'char:land',
+  'char:micError', 'char:fps', 'tts:fetch', 'connection:get', 'connection:check', 'teleport:now', 'char:teleport', 'char:control', 'char:step', 'char:land', 'char:ceiling',
 ];
 export const EVENT_CHANNELS = [
   'chat:delta', 'chat:done', 'chat:message', 'chat:phase', 'action:confirm', 'action:result', 'memory:changed',

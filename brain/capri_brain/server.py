@@ -31,6 +31,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import actions, eyes, hands, life, reminders
+from .curiosity import Curiosity
 from .heart import Heart
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
@@ -192,6 +193,7 @@ class Capri:
         self.inner = InnerLife(DATA / "vie_interieure.json")  # ce qu'elle vit de son côté
         self.heart = Heart(DATA / "coeur.json", cfg.setdefault("personnalite", {}))  # ses émotions, votre relation
         reminders.PATH = DATA / "rappels.json"
+        self.curiosity = Curiosity(DATA / "decouvertes.json")  # ce qu'elle explore d'elle-même (Wikipédia)
         self.ringing: dict[int, float] = {}  # rappels en train de sonner (id → depuis quand)
         self.shown_feeling = ""
         self.llm = LLM(cfg)
@@ -1181,6 +1183,52 @@ class Capri:
         await self.broadcast({"type": "activity", "what": what, "emote": pose})
         if random.random() < 0.35:
             await self.work_on_project(reading)
+        elif random.random() < 0.5:
+            await self.explore()
+
+    async def explore(self) -> None:
+        """Sa curiosité : un sujet, une vraie page Wikipédia, une synthèse fidèle au texte, gardée avec sa source."""
+        vie = self.cfg.get("vie", {})
+        if not vie.get("curiosite", True) or not self.curiosity.can_explore(int(vie.get("curiosite_par_jour", 3))):
+            return
+        him = [about_him(m["content"], self.name) for m in self.memory.list_memories()[:40]]
+        topic, origin = self.curiosity.pick_topic(him)
+        if origin == "quelque chose qu'il t'a confié":
+            # une phrase sur lui → le sujet à chercher (« il adore les jeux de rallye » → « jeux de rallye »)
+            try:
+                topic = (await self.llm.complete([{"role": "user", "content": (
+                    f"Phrase : « {topic} ». Donne seulement le sujet général à chercher dans une encyclopédie (2 à 5 mots, "
+                    "rien de personnel, pas de prénom). Réponds en JSON : {\"sujet\": \"…\"}")}],
+                    temperature=0.2, json_mode=True, background=True))
+                topic = str(json.loads(topic).get("sujet", "")).strip()[:80]
+            except (LLMError, json.JSONDecodeError, AttributeError):
+                return
+            if not topic:
+                return
+        page = await self.curiosity.read(self.llm.http, topic, self.voice_cfg.get("langue", "fr") if self.voice_cfg.get("langue") == "en" else "fr")
+        if not page:
+            self.curiosity.count_attempt()
+            return
+        try:
+            raw = await self.llm.complete([
+                {"role": "system", "content": self.system},
+                {"role": "user", "content": (
+                    f"[MOMENT À TOI, il ne voit pas ce message] Par curiosité ({origin}), tu lis la page Wikipédia "
+                    f"« {page['title']} » :\n{page['text']}\n\nRésume ce que tu en retiens en 2 ou 3 phrases, UNIQUEMENT "
+                    "d'après ce texte (n'ajoute aucun fait), avec ton regard à toi, et note ton intérêt de 1 à 5. "
+                    "JSON : {\"synthese\": \"…\", \"interet\": 3}")},
+            ], temperature=0.6, json_mode=True, background=True)
+            data = json.loads(raw)
+            summary = strip_emoji(str(data.get("synthese", "")).strip())
+            if not summary:
+                return
+            item = self.curiosity.add(topic, origin, page, summary, int(data.get("interet", 3) or 3))
+            self.heart.feel("decouverte", item["interest"] / 4, f"tu as découvert « {page['title']} »")
+            self.inner.moment("decouverte", f"Tu as exploré « {page['title']} »")
+            log.info("Capri a exploré : %s (intérêt %d)", page["title"], item["interest"])
+        except (LLMError, json.JSONDecodeError, AttributeError, ValueError) as e:
+            self.curiosity.count_attempt()
+            log.info("Exploration ignorée : %s", e)
 
     async def work_on_project(self, reading: dict | None) -> None:
         """Son projet à elle : elle en commence un (au plus deux à la fois) à partir de ce qu'il lui a confié ou de ce
@@ -1248,6 +1296,10 @@ class Capri:
             choices += ["reading", "reading"]
         if any(p["status"] == "terminé" and not p.get("shared") for p in self.inner.state.get("projects", [])):
             choices += ["project"] * 3
+        if random.random() < 0.3 and (found := self.curiosity.unshared()):
+            return (f"Par curiosité, tu as lu la page Wikipédia « {found['title']} ». Ce que tu en as retenu : "
+                    f"{found['summary']}\nViens lui en parler comme d'une trouvaille qui t'a plu : naturel, deux ou trois "
+                    "phrases, et propose-lui d'en discuter s'il veut. Ne cite que ce que tu as retenu, n'ajoute aucun fait.")
         if kind_project := (random.choice(choices) == "project" and self.inner.unshared_project()):
             return (f"Tu as terminé ton projet perso « {kind_project['title']} » ({kind_project['goal']}). Ce que tu en "
                     f"retires : {kind_project['result']}\nViens le lui raconter, fière et un peu timide à la fois : ce que "
@@ -1289,7 +1341,7 @@ class Capri:
 # Réglages modifiables depuis le hub : section → clés autorisées et leur type.
 EDITABLE = {
     "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int, "reactions_pc": bool,
-            "liberer_gpu_en_jeu": bool},
+            "liberer_gpu_en_jeu": bool, "curiosite": bool, "curiosite_par_jour": int},
     "mains": {"confirmer": bool},
     "personnalite": {"sarcasme": float, "jalousie": float},
     "voix": {"wake_word": bool, "follow_up_seconds": float, "end_silence": float, "end_silence_long": float,
@@ -1617,6 +1669,21 @@ async def health():
 async def perf():
     """Sa réactivité mesurée : médiane et 95e centile de chaque étape, ressources de la machine."""
     return capri.perf.summary()
+
+
+@app.get("/api/decouvertes")
+async def discoveries():
+    return capri.curiosity.summary()
+
+
+@app.post("/api/decouvertes/sujet")
+async def propose_topic(request: Request):
+    """Il lui propose un sujet à explorer."""
+    topic = str((await request.json()).get("sujet", "")).strip()
+    if not 2 <= len(topic) <= 120:
+        return JSONResponse({"error": "sujet invalide"}, status_code=400)
+    capri.curiosity.propose(topic)
+    return {"ok": True}
 
 
 @app.get("/api/rappels")

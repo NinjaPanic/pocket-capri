@@ -60,6 +60,7 @@ export const SettingsSchema = z.object({
     sleepAfterMinutes: z.number().min(1).max(240),
     sitOnTextBoxes: z.boolean(), // while you type, she sits on the line you're typing on
     idlePeek: z.boolean(), // when you're away she peeks in from a screen edge
+    energy: z.number().min(0.3).max(3), // how restless she is when living her life (1 = normal, 2.5 = restless)
     mischief: z.boolean(), // harmless pranks now and then (screen glitch, borrowing the cursor, notes)
     mischiefIntervalMinutes: z.number().min(5).max(240),
     explore: z.boolean(), // while you're away she browses on her own (read only) and tells you what she found
@@ -156,6 +157,7 @@ export const DEFAULT_SETTINGS: Settings = {
     sleepAfterMinutes: 10,
     sitOnTextBoxes: true,
     idlePeek: true,
+    energy: 1,
     mischief: false,
     mischiefIntervalMinutes: 30,
     explore: false,

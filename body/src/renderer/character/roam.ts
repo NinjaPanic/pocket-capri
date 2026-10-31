@@ -20,6 +20,7 @@ export interface RoamWorld {
   perches?: { left: number; right: number; y: number }[]; // bords du haut de fenêtres visibles, où s'asseoir
   seatRatio: number; // hauteur de ses pieds dans sa fenêtre (0–1)
   userIdleSec: number;
+  energy?: number; // 1 = normal ; plus haut, elle se repose moins longtemps entre deux envies (« agitée »)
 }
 
 export interface RoamOutput {
@@ -36,6 +37,7 @@ export interface RoamActions {
   clip(name: string): void;
   teleport(): void;
   land(): void; // arrivée d'un vol : se poser sur ce qu'il y a sous ses pieds
+  ceiling?(): void; // aller s'accrocher la tête en bas au haut de l'écran
 }
 
 type Mode = { kind: 'rest'; until: number } | { kind: 'walk'; toX: number; dir: -1 | 1 }
@@ -150,7 +152,8 @@ export class Roamer {
   private decide(w: RoamWorld) {
     const r = this.random();
     const away = w.userIdleSec > 300; // il n'est pas là : elle se calme, finit par dormir
-    const rest = (min: number, max: number) => { this.mode = { kind: 'rest', until: performance.now() + (min + this.random() * (max - min)) * 1000 }; };
+    const e = Math.max(0.3, w.energy ?? 1);
+    const rest = (min: number, max: number) => { this.mode = { kind: 'rest', until: performance.now() + (min + this.random() * (max - min)) * 1000 / e }; };
     if (away) {
       if (r < 0.15 && w.ledge) this.startWalk(w); else { this.act.posture(this.pick(posturesFor(w.surface))); rest(40, 120); }
       return;
@@ -165,7 +168,8 @@ export class Roamer {
       this.act.clip(IDLE_CLIPS[Math.floor(this.random() * IDLE_CLIPS.length)]);
       return rest(8, 20);
     }
-    // en l'air : elle finit souvent par aller se poser quelque part
+    // en l'air : elle finit souvent par aller se poser quelque part (et parfois au plafond, la tête en bas)
+    if (r < 0.04 && this.act.ceiling) { this.act.ceiling(); return rest(20, 60); }
     if (r < 0.4) return this.startFly(w);
     if (r < 0.55) return this.startSpin();
     if (r < 0.72) { this.act.posture(this.pick(posturesFor('air'))); return rest(8, 20); }

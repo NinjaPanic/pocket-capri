@@ -185,9 +185,11 @@ function cue(c: CharacterCue) {
 }
 
 /** Où elle se trouve → les postures qui ont du sens (assise sur un rebord, accrochée à un bord, en l'air). */
-function computeSurface(b: Rect): 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' {
+function computeSurface(b: Rect): 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' | 'ceiling' {
   if (perchRect && Math.abs(b.y + b.height * SEAT_RATIO - perchRect.y) < 14) return 'window';
   const a = displayFor(b, displaysNow()).workArea;
+  // à l'envers, ses pieds (retournés) touchent le haut de l'écran
+  if (Math.abs(b.y + b.height * (1 - SEAT_RATIO) - a.y) <= 12) return 'ceiling';
   if (b.x < a.x - 10) return 'edge_left';
   if (b.x + b.width > a.x + a.width + 10) return 'edge_right';
   if (Math.abs(b.y + b.height * SEAT_RATIO - (a.y + a.height)) <= 12) return 'taskbar';
@@ -199,7 +201,7 @@ function sendSurface(force = false) {
   if (s !== lastSurface || force) { lastSurface = s; cue({ type: 'surface', surface: s }); raiseCharacter(); }
   // ce qu'elle a sous les pieds, pour qu'elle puisse s'y promener
   const a = displayFor(b, displaysNow()).workArea;
-  const ledge = s === 'window' && perchRect ? { left: perchRect.x, right: perchRect.x + perchRect.width } : s === 'taskbar' ? { left: a.x, right: a.x + a.width } : null;
+  const ledge = s === 'window' && perchRect ? { left: perchRect.x, right: perchRect.x + perchRect.width } : s === 'taskbar' || s === 'ceiling' ? { left: a.x, right: a.x + a.width } : null;
   cue({ type: 'ledge', ledge, me: b });
 }
 
@@ -223,6 +225,15 @@ function onPoke() {
   else cue({ type: 'react', reaction: Math.random() < 0.25 ? 'curious' : 'happy' });
 }
 
+/** Elle s'accroche au haut de l'écran, la tête en bas (le retournement est dessiné côté affichage). */
+function hangFromTop() {
+  if (!charWin || charWin.isDestroyed() || drag.active || throwTimer || fallTimer) return;
+  const b = herBounds(), a = displayFor(b, displaysNow()).workArea;
+  perchRect = null; perchHwnd = 0;
+  charWin.setBounds({ ...b, y: Math.round(a.y - b.height * (1 - SEAT_RATIO)) });
+  savePosition(); sendSurface();
+}
+
 /** Lâchée près du haut d'une fenêtre ou de la barre des tâches : elle s'y pose. */
 function settleAfterDrop() {
   if (!charWin || charWin.isDestroyed()) return;
@@ -232,6 +243,8 @@ function settleAfterDrop() {
   const work = displayFor(b, displaysNow()).workArea;
   // le haut visible d'une fenêtre (n'importe laquelle, pas seulement l'active) juste sous ses pieds
   const ledge = perches.find((p) => cx > p.left && cx < p.right && Math.abs(seat - p.y) < 24);
+  // lâchée tout en haut de l'écran : elle s'y accroche, à l'envers
+  if (b.y < work.y - b.height * 0.15) { hangFromTop(); return; }
   if (ledge) {
     charWin.setBounds({ ...b, y: Math.round(ledge.y - b.height * SEAT_RATIO) });
     perchRect = ledge.rect;
@@ -590,6 +603,12 @@ const EN: Record<string, string> = {
   "S'étirer": 'Stretch', 'Saluer': 'Wave', 'Danser': 'Dance', 'Tourner sur elle-même': 'Spin', 'Regarder autour': 'Look around', 'Dormir': 'Sleep',
   'Au hasard': 'Anywhere', 'Près de la souris': 'Near the mouse', 'Sur la fenêtre active': 'On the active window',
   'Coucou depuis un bord': 'Peek from an edge', 'Dans un coin': 'In a corner',
+  "À l'envers, au plafond": 'Upside down, on the ceiling', 'Taille': 'Size', 'Petite': 'Small', 'Normale': 'Normal', 'Grande': 'Large', 'Très grande': 'Huge',
+  'Déplacements': 'Moving around', 'Immobile': 'Still', 'Promenade': 'Wandering', 'Agitée': 'Restless',
+  'Animations': 'Animations', 'Calmes': 'Calm', 'Exubérantes': 'Exuberant', 'Effets glitch': 'Glitch effects',
+  'Mode discret (dans un coin, silencieuse)': 'Discreet mode (in a corner, silent)', 'Rappels…': 'Reminders…',
+  'Réinitialiser ses préférences…': 'Reset her preferences…', 'Ses réglages (corps, déplacements, effets) reviennent comme au premier jour. Sa mémoire et sa personnalité ne changent pas.': 'Her body, movement and effect settings go back to the defaults. Her memory and personality are untouched.',
+  'Réinitialiser': 'Reset', 'Annuler': 'Cancel',
   'en ligne': 'online', 'cerveau hors ligne': 'brain offline', ' · ne pas déranger': ' · do not disturb',
   'CAPRI PILOTE LE PC · ÉCHAP POUR ARRÊTER': 'CAPRI IS DRIVING THE PC · ESC TO STOP',
 };
@@ -601,7 +620,7 @@ const POSES: [string, string][] = [
   ['Genoux serrés', 'hug_knees'], ['Accroupie', 'crouch'], ['Un genou relevé', 'knee_up'], ['Appuyée sur les mains', 'lean_back'],
   ['Allongée sur le côté', 'lie_side'], ['Mains sur les hanches', 'hands_hips'], ['Jambes croisées', 'legs_crossed'], ['Sur une jambe', 'one_leg'],
   ['Flotter sur le dos', 'float'], ['Marcher', 'walk'], ['Voler ailleurs', 'fly'], ['S\'étirer', 'stretch'],
-  ['Saluer', 'wave'], ['Danser', 'dance'], ['Tourner sur elle-même', 'spin'], ['Regarder autour', 'look_around'], ['Dormir', 'sleep'],
+  ['À l\'envers, au plafond', 'ceiling'], ['Saluer', 'wave'], ['Danser', 'dance'], ['Tourner sur elle-même', 'spin'], ['Regarder autour', 'look_around'], ['Dormir', 'sleep'],
 ];
 const PLACES: [string, TeleportTarget][] = [
   ['Au hasard', 'auto'], ['Près de la souris', 'near_cursor'], ['Sur la fenêtre active', 'perch'], ['Coucou depuis un bord', 'peek'], ['Dans un coin', 'corner'],
@@ -620,6 +639,24 @@ function menuItems(short: boolean): MenuItemConstructorOptions[] {
       { label: tr('Autre écran'), enabled: screen.getAllDisplays().length > 1, click: () => void teleporter.go('other_monitor', 'manual') },
     ] },
     { label: tr('Vivre sa vie (se balader seule)'), type: 'checkbox', checked: s.behavior.idlePeek, click: (i) => settings.update({ behavior: { idlePeek: i.checked } }) },
+    { label: tr('Déplacements'), submenu: ([['Immobile', false, 1], ['Promenade', true, 1], ['Agitée', true, 2.5]] as const).map(([label, peek, energy]) => ({
+      label: tr(label), type: 'radio' as const, checked: s.behavior.idlePeek === peek && (!peek || Math.abs(s.behavior.energy - energy) < 0.01),
+      click: () => settings.update({ behavior: { idlePeek: peek, energy } }) })) },
+    { label: tr('Taille'), submenu: ([['Petite', 0.7], ['Normale', 1], ['Grande', 1.4], ['Très grande', 1.9]] as const).map(([label, scale]) => ({
+      label: tr(label), type: 'radio' as const, checked: Math.abs(s.character.scale - scale) < 0.05, click: () => settings.update({ character: { scale } }) })) },
+    { label: tr('Animations'), submenu: [
+      ...([['Calmes', 0.5], ['Normale', 1], ['Exubérantes', 1.4]] as const).map(([label, v]) => ({
+        label: tr(label), type: 'radio' as const, checked: Math.abs(s.character.animationIntensity - v) < 0.05, click: () => settings.update({ character: { animationIntensity: v } }) })),
+      { type: 'separator' as const },
+      { label: tr('Effets glitch'), type: 'checkbox' as const, checked: s.character.glitchEffects, click: (i: { checked: boolean }) => settings.update({ character: { glitchEffects: i.checked } }) },
+    ] },
+    { label: tr('Mode discret (dans un coin, silencieuse)'), type: 'checkbox', checked: s.behavior.doNotDisturb, click: (i) => {
+      settings.update({ behavior: { doNotDisturb: i.checked } });
+      if (i.checked) void teleporter.go('corner', 'manual');
+      // son cerveau aussi se tait (et reparle quand on décoche)
+      void fetch(`${BRAIN_HTTP}/api/reglages`, { method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ section: 'silence', key: 'minutes', value: i.checked ? 24 * 60 : 0 }) }).catch(() => undefined);
+    } },
     { label: tr('Ne pas déranger'), type: 'checkbox', checked: s.behavior.doNotDisturb, click: (i) => settings.update({ behavior: { doNotDisturb: i.checked } }) },
     { label: tr('Laisser passer les clics'), type: 'checkbox', checked: s.character.clickThrough, click: (i) => settings.update({ character: { clickThrough: i.checked } }) },
     { label: tr('Lancer avec Windows'), type: 'checkbox', checked: s.startup.launchOnLogin, click: (i) => settings.update({ startup: { launchOnLogin: i.checked } }) },
@@ -631,14 +668,27 @@ function menuItems(short: boolean): MenuItemConstructorOptions[] {
   items.push(
     { type: 'separator' },
     { label: tr('Mémoire…'), click: () => openHub('memoire') },
+    { label: tr('Rappels…'), click: () => openHub('etat') },
     { label: tr('Visage…'), click: () => openHub('visage') },
     { label: tr('Réglages…'), click: () => openHub('reglages') },
     { type: 'separator' },
-    ...(short ? [] : [{ label: tr('Redémarrer'), click: restart }]),
+    ...(short ? [] : [{ label: tr('Réinitialiser ses préférences…'), click: () => void resetPreferences() }, { label: tr('Redémarrer'), click: restart }]),
     { label: tr('Quitter Capri'), click: () => app.quit() },
   );
   return items;
 }
+/** Ses réglages de corps reviennent par défaut, après confirmation. Sa mémoire et son cerveau ne bougent pas. */
+async function resetPreferences() {
+  const { response } = await dialog.showMessageBox({
+    type: 'question', buttons: [tr('Réinitialiser'), tr('Annuler')], defaultId: 1, cancelId: 1, title: 'Capri',
+    message: tr('Ses réglages (corps, déplacements, effets) reviennent comme au premier jour. Sa mémoire et sa personnalité ne changent pas.'),
+  });
+  if (response !== 0) return;
+  settings.reset();
+  settings.update({ behavior: { idlePeek: true } });
+  charWin?.destroy(); createCharacter();
+}
+
 function createTray() {
   tray = new Tray(trayIcon());
   tray.on('click', () => openHub('discussion'));
@@ -701,7 +751,7 @@ const AvatarPatch = z.object({
     scale: z.number().min(0.4).max(2.5), opacity: z.number().min(0.2).max(1), alwaysOnTop: z.boolean(),
     clickThrough: z.boolean(), hideOnFullscreen: z.boolean(), glitchEffects: z.boolean(), animationIntensity: z.number().min(0).max(1.5),
   }).partial().optional(),
-  behavior: z.object({ doNotDisturb: z.boolean(), idlePeek: z.boolean(), sleepAfterMinutes: z.number().min(1).max(240) }).partial().optional(),
+  behavior: z.object({ doNotDisturb: z.boolean(), idlePeek: z.boolean(), energy: z.number().min(0.3).max(3), sleepAfterMinutes: z.number().min(1).max(240) }).partial().optional(),
   teleport: z.object({ auto: z.boolean(), minMinutes: z.number().min(1).max(240), maxMinutes: z.number().min(1).max(480), effects: z.boolean() }).partial().optional(),
   startup: z.object({ launchOnLogin: z.boolean() }).partial().optional(),
 }).strict();
@@ -725,6 +775,7 @@ function registerIpc() {
   handle('char:menu', none, charMenu);
   handle('char:control', z.boolean(), setSteering);
   handle('char:land', none, settleAfterDrop);
+  handle('char:ceiling', none, hangFromTop);
   handle('char:step', z.object({ dx: z.number().min(-60).max(60), dy: z.number().min(-60).max(60) }), ({ dx, dy }) => stepBy(dx, dy));
   handle('char:micError', z.string().max(300), (msg) => log.warn('erreur micro', { msg }));
   handle('char:fps', z.number().min(0).max(1000), () => undefined);

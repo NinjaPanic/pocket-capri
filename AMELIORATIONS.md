@@ -152,6 +152,26 @@ vient bien de la chaîne vocale, pas de conditions plus favorables.
   arrière-plan (sans jamais passer avant votre conversation), et vient te raconter le résultat. Elle ne fait que
   réfléchir et écrire, et il lui est interdit de prétendre avoir fait autre chose.
 
+### 2.5 Lot 4 — fenêtres, plafond, menu, curiosité
+
+* **Elle suit sa fenêtre en direct** : la position de la fenêtre où elle est assise est lue directement dans Windows
+  30 fois par seconde (2,5 µs par lecture), au lieu d'une fois toutes les 1,5 s.
+* **Vraie chute** : fenêtre réduite, fermée, agrandie ou recouverte → elle tombe avec la pesanteur, se rattrape au
+  haut d'une autre fenêtre si elle en croise une, sinon atterrit sur la barre des tâches (genoux qui plient).
+* **À l'envers au plafond** : menu Pose › « À l'envers, au plafond », en la lâchant tout en haut de l'écran, ou
+  parfois d'elle-même quand elle flotte. Elle se retourne en ~0,5 s (sans sortir de son cadre), ses pieds touchent
+  le haut de l'écran, ses bras et ses cheveux pendent vers le sol, et elle peut y marcher. **Vérifié sur des images
+  rendues par son vrai moteur** (pieds pile sur le bord, retournement contenu dans la fenêtre).
+* **Menu complété** : taille (petite → très grande), déplacements (immobile, promenade, agitée), animations (calmes,
+  normales, exubérantes, effets glitch), mode discret (coin + silence côté cerveau), rappels, réinitialisation des
+  préférences (avec confirmation ; sa mémoire et sa personnalité ne bougent pas).
+* **Curiosité autonome (C4, G3)** — `brain/capri_brain/curiosity.py`, `data/decouvertes.json` : jusqu'à 3 explorations
+  par jour (réglable, désactivable) d'un sujet que tu lui proposes (hub), d'un de ses goûts ou de quelque chose que tu
+  lui as confié (réduit à un sujet général, rien de personnel n'est envoyé). Lecture seule sur Wikipédia, rien
+  d'autre de téléchargé ni d'exécuté. Synthèse fidèle au texte, note d'intérêt, source gardée ; elle te parle des
+  meilleures. **Vérifié de bout en bout** : sujet proposé « aurores boréales » → page « Aurore polaire » lue,
+  synthèse et source enregistrées.
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)
