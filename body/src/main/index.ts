@@ -22,7 +22,7 @@ import { TeleportController } from './desktop/teleportController';
 import { SEAT_RATIO, TELEPORT_TARGETS, type TeleportTarget } from './desktop/teleport';
 import { clampToDisplays, displayFor, type Rect } from './desktop/displays';
 import { createCharacterWindow, createBrainChatWindow, createControlBorder, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
-import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, win32Status } from './desktop/win32';
+import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, win32Status, windowRect } from './desktop/win32';
 
 const TEST = process.env.CAPRI_TEST === '1';
 if (process.env.CAPRI_USER_DATA) app.setPath('userData', path.resolve(process.env.CAPRI_USER_DATA));
@@ -99,7 +99,7 @@ async function init() {
     activeWindow: fgRectDip,
     cue,
     aiConnected: () => brainUp,
-    blocked: () => (drag.active ? 'déplacée à la main' : throwTimer ? 'lancée' : steering ? 'pilote le PC'
+    blocked: () => (drag.active ? 'déplacée à la main' : throwTimer ? 'lancée' : fallTimer ? 'tombe' : steering ? 'pilote le PC'
       : fullscreenHidden ? 'appli en plein écran' : userHidden ? 'cachée' : settings.get().behavior.doNotDisturb ? 'ne pas déranger' : null),
     userIdleSec: () => powerMonitor.getSystemIdleTime(),
     log,
@@ -116,6 +116,7 @@ async function init() {
   intervals.push(setInterval(raiseTick, 250));
   intervals.push(setInterval(presenceTick, 5000));
   intervals.push(setInterval(() => void windowsTick(), 1500));
+  intervals.push(setInterval(rideTick, 33)); // assise sur une fenêtre qu'on déplace : elle la suit image par image
   intervals.push(setInterval(brainTick, 15_000));
   void startBrain().then(brainTick);
   for (const ev of ['display-removed', 'display-added', 'display-metrics-changed'] as const) screen.on(ev as 'display-added', reclampCharacter);
@@ -282,7 +283,7 @@ function stopThrow() {
 
 /** Elle se déplace d'elle-même (marcher sur un rebord, voler jusqu'à un point) : petits pas demandés par l'affichage. */
 function stepBy(dx: number, dy: number) {
-  if (!charWin || charWin.isDestroyed() || drag.active || throwTimer || teleporter.active) return;
+  if (!charWin || charWin.isDestroyed() || drag.active || throwTimer || fallTimer || teleporter.active) return;
   const b = herBounds();
   charWin.setBounds(clampToDisplays({ ...b, x: Math.round(b.x + dx), y: Math.round(b.y + dy) }, displaysNow(), b.width * 0.5));
 }
@@ -457,33 +458,80 @@ async function windowsTick() {
   perchFollow();
 }
 
-/** Assise sur une fenêtre : si on la déplace, elle suit ; si on la réduit ou la ferme, elle s'envole. */
+/** Assise sur une fenêtre : si on la déplace, elle suit ; si on la réduit, la ferme ou la recouvre, elle tombe. */
 function perchFollow() {
-  if (!perchHwnd || !perchRect || !charWin || teleporter.active || drag.active || throwTimer) return;
+  if (!perchHwnd || !perchRect || !charWin || teleporter.active || drag.active || throwTimer || fallTimer) return;
   const w = windowsNow.find((x) => x.hwnd === perchHwnd);
   const d = w && !w.max ? screen.screenToDipRect(null, { x: w.x, y: w.y, width: w.w, height: w.h }) : null;
-  if (!d) {
-    perchRect = null; perchHwnd = 0;
-    cue({ type: 'react', reaction: 'surprised' });
-    setTimeout(() => void teleporter.go('auto', 'manual'), 350);
-    return;
-  }
+  // une autre fenêtre est passée devant le bord où elle est assise : plus rien sous ses pieds
+  // (comparé à la fenêtre elle-même : pendant qu'on la déplace, la liste a jusqu'à 1,5 s de retard)
+  const b = herBounds(), at = b.x + b.width / 2 - perchRect.x;
+  const covered = d && !perches.some((p) => p.hwnd === perchHwnd && at > p.left - p.rect.x - 20 && at < p.right - p.rect.x + 20);
+  if (!d || covered) { fall(); return; }
+  if (windowRect(perchHwnd) !== undefined) return; // suivie image par image par rideTick
+  followTo(d);
+}
+function followTo(d: Rect) {
+  if (!perchRect || !charWin) return;
   const dx = d.x - perchRect.x, dy = d.y - perchRect.y;
-  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
   perchRect = d;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
   const b = herBounds();
   charWin.setBounds({ ...b, x: Math.round(b.x + dx), y: Math.round(b.y + dy) });
 }
+/** 30 fois par seconde, la position de SA fenêtre (une seule, lue directement dans Windows : presque gratuit). */
+function rideTick() {
+  if (!perchHwnd || !perchRect || !charWin || teleporter.active || drag.active || throwTimer || fallTimer) return;
+  const r = windowRect(perchHwnd);
+  if (r === undefined) return;
+  if (r === null) { fall(); return; } // réduite, fermée, agrandie
+  followTo(screen.screenToDipRect(null, r));
+}
+
+/**
+ * Plus rien sous ses pieds : elle tombe pour de vrai (pesanteur), et se rattrape au bord d'une autre fenêtre
+ * si elle passe devant, sinon atterrit sur la barre des tâches. L'impact (écrasement, cheveux) vient tout seul
+ * de son élan, côté affichage.
+ */
+let fallTimer: NodeJS.Timeout | null = null;
+function fall() {
+  if (!charWin || fallTimer || throwTimer) return;
+  perchRect = null; perchHwnd = 0;
+  cue({ type: 'react', reaction: 'surprised' });
+  let vy = -120, last = Date.now(); // un petit sursaut vers le haut, puis la chute
+  fallTimer = setInterval(() => {
+    const w = charWin;
+    if (!w || w.isDestroyed() || drag.active) { stopFall(); return; }
+    const now = Date.now(), dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    const b = herBounds(), seat = b.height * SEAT_RATIO, cx = b.x + b.width / 2;
+    const area = displayFor(b, displaysNow()).workArea;
+    vy = Math.min(2600, vy + 2400 * dt);
+    const feet = b.y + seat, next = feet + vy * dt;
+    // un rebord croisé pendant la chute : elle s'y rattrape
+    const ledge = vy > 0 ? perches.find((p) => cx > p.left + 10 && cx < p.right - 10 && feet <= p.y && next >= p.y) : undefined;
+    const ground = area.y + area.height;
+    if (ledge || next >= ground) {
+      const y = ledge ? ledge.y : ground;
+      w.setBounds({ ...b, y: Math.round(y - seat) });
+      if (ledge) { perchRect = ledge.rect; perchHwnd = ledge.hwnd; }
+      stopFall();
+      cue({ type: 'landed' });
+      savePosition(); sendSurface();
+      return;
+    }
+    w.setBounds({ ...b, y: Math.round(b.y + vy * dt) });
+  }, 16);
+}
+function stopFall() { if (fallTimer) clearInterval(fallTimer); fallTimer = null; }
 
 function perchTick() {
   if (!perchRect || !charWin || teleporter.active || drag.active) return;
   if (perchHwnd) return; // suivie par perchFollow
   const now = fgRectDip();
   if (now && Math.abs(now.x - perchRect.x) < 8 && Math.abs(now.y - perchRect.y) < 8 && Math.abs(now.width - perchRect.width) < 8) return;
-  // sa fenêtre a bougé ou disparu : elle sursaute et file ailleurs
-  perchRect = null;
-  cue({ type: 'react', reaction: 'surprised' });
-  setTimeout(() => void teleporter.go('corner', 'manual'), 350);
+  // sa fenêtre a bougé ou disparu : plus rien sous ses pieds
+  fall();
 }
 function fullscreenTick() {
   perchTick();

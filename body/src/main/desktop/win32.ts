@@ -6,6 +6,7 @@ type Fn = (...a: unknown[]) => unknown;
 interface Api {
   GetForegroundWindow: Fn; GetWindowRect: Fn; MonitorFromWindow: Fn; GetMonitorInfoW: Fn;
   GetClassNameW: Fn; SHQueryUserNotificationState: Fn; GetAsyncKeyState: Fn; address: (p: unknown) => bigint;
+  RectOf: Fn; IsIconic: Fn; IsWindowVisible: Fn; IsZoomed: Fn;
 }
 let api: Api | null = null;
 let loadError: string | null = null;
@@ -29,6 +30,11 @@ export function loadWin32(log?: Logger): boolean {
       GetAsyncKeyState: user32.func('int16 __stdcall GetAsyncKeyState(int vKey)'),
       SHQueryUserNotificationState: shell32.func('long __stdcall SHQueryUserNotificationState(_Out_ int* state)'),
       address: (p: unknown) => (p ? BigInt(koffi.address(p)) : 0n),
+      // the same calls, with a window handle given as a number (as her brain reports it)
+      RectOf: user32.func('bool __stdcall GetWindowRect(intptr_t hWnd, _Out_ CAPRI_RECT* rect)'),
+      IsIconic: user32.func('bool __stdcall IsIconic(intptr_t hWnd)'),
+      IsWindowVisible: user32.func('bool __stdcall IsWindowVisible(intptr_t hWnd)'),
+      IsZoomed: user32.func('bool __stdcall IsZoomed(intptr_t hWnd)'),
     };
     return true;
   } catch (e) {
@@ -81,6 +87,21 @@ export function foregroundRect(ownHandles: bigint[]): { x: number; y: number; wi
     if (!api.GetWindowRect(hwnd, r)) return null;
     return { x: r.left!, y: r.top!, width: r.right! - r.left!, height: r.bottom! - r.top! };
   } catch { return null; }
+}
+
+/**
+ * Where a given window is right now (physical px), read straight from Windows: cheap enough to call 30 times a
+ * second, so she can ride a window that is being dragged. Null when it's gone, minimised, hidden or maximised;
+ * undefined when the bindings are unavailable (fall back to the slower list from her brain).
+ */
+export function windowRect(hwnd: number): { x: number; y: number; width: number; height: number } | null | undefined {
+  if (!api) return undefined;
+  try {
+    if (!api.IsWindowVisible(hwnd) || api.IsIconic(hwnd) || api.IsZoomed(hwnd)) return null;
+    const r: { left?: number; top?: number; right?: number; bottom?: number } = {};
+    if (!api.RectOf(hwnd, r)) return null;
+    return { x: r.left!, y: r.top!, width: r.right! - r.left!, height: r.bottom! - r.top! };
+  } catch { return undefined; }
 }
 
 /** Is the left mouse button physically down? (used to end drags robustly). Null if unknown. */

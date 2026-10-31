@@ -50,6 +50,7 @@ export type CharacterCue =
   | { type: 'connection'; state: ConnectionStatus['state'] }
   | { type: 'teleport'; phase: 'out' | 'in'; id: number; effects: boolean }
   | { type: 'clip'; name: string }
+  | { type: 'landed' } // elle vient d'atterrir après une chute (genoux qui plient, récupération)
   | { type: 'touch'; kind: 'clics' | 'lancee' } // ce qu'on lui fait, transmis à son cerveau (ses émotions)
   | { type: 'surface'; surface: 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' }
   | { type: 'dash'; dir: -1 | 1 | 0 }

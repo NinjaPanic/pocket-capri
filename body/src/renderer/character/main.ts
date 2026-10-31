@@ -408,6 +408,7 @@ api.on('cue', (raw) => {
     case 'bubble': showBubble(c.text); break;
     case 'workPose': workPose = c.pose; break;
     case 'touch': brain.send({ type: 'touch', kind: c.kind }); break;
+    case 'landed': behavior.landed(true); break;
     case 'teleport': onTeleport(c.phase, c.id, c.effects); break;
     case 'clip': emote(c.name); break;
     case 'connection': break;
