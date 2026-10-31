@@ -1678,19 +1678,23 @@ async def index():
     return HTMLResponse(html.replace('<html lang="fr">', f'<html lang="{lang}">', 1))
 
 
+# « no-cache » : après une mise à jour, le hub recharge ses fichiers au lieu de garder une vieille version
+FRESH = {"Cache-Control": "no-cache"}
+
+
 @app.get("/hub-i18n.js")
 async def hub_i18n():
-    return FileResponse(PACKAGE / "static" / "hub-i18n.js", media_type="application/javascript")
+    return FileResponse(PACKAGE / "static" / "hub-i18n.js", media_type="application/javascript", headers=FRESH)
 
 
 @app.get("/hub.js")
 async def hub_js():
-    return FileResponse(PACKAGE / "static" / "hub.js", media_type="application/javascript")
+    return FileResponse(PACKAGE / "static" / "hub.js", media_type="application/javascript", headers=FRESH)
 
 
 @app.get("/hub.css")
 async def hub_css():
-    return FileResponse(PACKAGE / "static" / "hub.css", media_type="text/css")
+    return FileResponse(PACKAGE / "static" / "hub.css", media_type="text/css", headers=FRESH)
 
 
 @app.get("/api/reglages")
@@ -1870,7 +1874,7 @@ async def face_editor():
 
 @app.get("/editeur.js")
 async def face_editor_js():
-    return FileResponse(PACKAGE / "static" / "editeur.js", media_type="application/javascript")
+    return FileResponse(PACKAGE / "static" / "editeur.js", media_type="application/javascript", headers=FRESH)
 
 
 FACE_FILE = DATA / "face.json"

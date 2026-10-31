@@ -416,7 +416,9 @@ async function brainCard(c) {
     key.placeholder = info.key ? `${LANG === "en" ? "key saved" : "clé enregistrée"} (${info.key})` : t("colle ta clé ici");
     const btn = el("button", "btn", "Enregistrer");
     btn.onclick = async () => { if (key.value.trim() && await saveBrain(`${p}_key`, key.value.trim())) { key.value = ""; loaders.reglages(); } };
-    row(details, `${LANG === "en" ? "API key" : "Clé API"} ${info.label}`, LANG === "en" ? `get one at ${info.where}; it stays on this PC` : `à créer sur ${info.where} ; elle reste sur ce PC`, key, btn);
+    // le champ et son bouton se partagent la place (le bouton dépassait de la carte)
+    const keybox = el("div", "keybox"); keybox.append(key, btn);
+    row(details, `${LANG === "en" ? "API key" : "Clé API"} ${info.label}`, LANG === "en" ? `get one at ${info.where}; it stays on this PC` : `à créer sur ${info.where} ; elle reste sur ce PC`, keybox);
     if (!info.key) details.append(el("p", "offline", "Sans clé, elle ne pourra pas répondre avec ce service."));
   };
   provider.onchange = async () => { show(); await saveBrain("provider", provider.value); };
@@ -435,7 +437,7 @@ async function voiceCard() {
   const put = (key, value) => fetch("/api/reglages", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "voix", key, value }) });
   const row = (label, ...controls) => { const r = el("div", "row"); r.append(el("label", null, label), ...controls); card.append(r); };
   const engine = el("select", "field");
-  const engines = [["edge", "Naturelle en ligne (Vivienne…)"], ["local", "Naturelle sur ton PC (Chatterbox)"], ["kokoro", "Basique sur ton PC"]];
+  const engines = [["edge", "Naturelle en ligne (Microsoft)"], ["local", "Naturelle sur ton PC (Chatterbox)"], ["kokoro", "Basique sur ton PC"]];
   for (const [k, l] of engines) {
     if (k === "local" && !v.local.installed) continue;
     const o = el("option", null, l); o.value = k; engine.append(o);

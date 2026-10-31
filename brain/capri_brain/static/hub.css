@@ -180,3 +180,10 @@ select.field option { background: var(--panel); }
 .kind-pensee, .kind-lecture { color: #b48cff; font-style: italic; }
 .memEdit { flex: 1; background: transparent; color: inherit; border: 1px solid #22f27a; padding: 4px 6px; font: inherit; }
 #memList .txt { cursor: text; }
+
+/* lignes de réglages : quand la carte est étroite, le contrôle passe sous son libellé au lieu de dépasser */
+.row { flex-wrap: wrap; }
+.row > .field, .row > select.field { max-width: 100%; min-width: 0; }
+.keybox { display: flex; gap: 6px; flex: 1 1 220px; min-width: 0; max-width: 100%; }
+.keybox .field { flex: 1; width: auto; min-width: 0; }
+.keybox .btn { flex: none; }
