@@ -1910,6 +1910,7 @@ async def websocket(ws: WebSocket):
     capri.clients[ws] = client
     await capri.send(ws, {
         "type": "hello",
+        "langue": CONFIG.get("toi", {}).get("langue", "en"),
         "night": capri.night,
         "feeling": capri.heart.face(),
         "mood": capri.mood,

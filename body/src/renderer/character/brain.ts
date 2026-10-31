@@ -9,7 +9,7 @@
 export const BRAIN_URL = 'ws://127.0.0.1:8765/ws';
 
 export type BrainEvent =
-  | { type: 'hello'; mood: string; status: string; voice: string; face?: Record<string, unknown>; night?: boolean; feeling?: string }
+  | { type: 'hello'; mood: string; status: string; voice: string; face?: Record<string, unknown>; night?: boolean; feeling?: string; langue?: string }
   | { type: 'face'; config: Record<string, unknown> }
   | { type: 'status'; status: string }
   | { type: 'voice'; status: string }

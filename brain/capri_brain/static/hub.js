@@ -181,7 +181,7 @@ function renderMemories() {
     x.onclick = async () => { await fetch(`/api/memories/${m.id}`, { method: "DELETE" }); memories = memories.filter((o) => o.id !== m.id); renderMemories(); };
     // il peut corriger un souvenir : un clic sur le texte, Entrée pour garder, Échap pour annuler
     const txt = el("span", "txt", m.content);
-    txt.title = LANG === "en" ? "Click to edit" : "Clique pour corriger";
+    txt.title = LANG === "en" ? "Click to edit" : "Clique pour corriger"; // (déjà traduit ici)
     txt.onclick = () => {
       if (li.querySelector("input")) return;
       const inp = el("input"); inp.value = m.content; inp.className = "memEdit";
@@ -500,9 +500,10 @@ loaders.etat = async () => {
     const d = el("div", "stat"); d.append(el("b", null, k), el("span", null, String(v))); stats.append(d);
   }
 };
-const EMO = { joie: "Joie", curiosite: "Curiosité", ennui: "Ennui", fatigue: "Fatigue", irritation: "Irritation", sarcasme: "Sarcasme",
+const EMO = LANG === "en" ? { joie: "Joy", curiosite: "Curiosity", ennui: "Boredom", fatigue: "Tiredness", irritation: "Irritation", sarcasme: "Sarcasm",
+  surprise: "Surprise", fierte: "Pride", jalousie: "Jealousy", tendresse: "Tenderness", mefiance: "Distrust", excitation: "Excitement", tristesse: "Sadness" } : { joie: "Joie", curiosite: "Curiosité", ennui: "Ennui", fatigue: "Fatigue", irritation: "Irritation", sarcasme: "Sarcasme",
   surprise: "Surprise", fierte: "Fierté", jalousie: "Jalousie", tendresse: "Tendresse", mefiance: "Méfiance", excitation: "Excitation", tristesse: "Tristesse" };
-const REL = { familiarite: "Familiarité", confiance: "Confiance", complicite: "Complicité", habitude: "Habitude", taquinerie: "Taquinerie", jalousie: "Jalousie" };
+const REL = LANG === "en" ? { familiarite: "Familiarity", confiance: "Trust", complicite: "Closeness", habitude: "Habit", taquinerie: "Teasing", jalousie: "Jealousy" } : { familiarite: "Familiarité", confiance: "Confiance", complicite: "Complicité", habitude: "Habitude", taquinerie: "Taquinerie", jalousie: "Jalousie" };
 /** Ses découvertes (Wikipédia), avec la source ; il peut lui proposer un sujet. */
 function renderDiscoveries(d) {
   const card = el("div", "card");
@@ -528,7 +529,8 @@ function renderDiscoveries(d) {
 }
 
 /** Votre histoire : du plus récent au plus ancien, chaque moment avec son type. */
-const KINDS = { decouverte: "◈ exploré", projet: "★ projet", debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
+const KINDS = LANG === "en" ? { decouverte: "◈ explored", projet: "★ project", debut: "◆ start", souvenir: "▣ learned", jeu: "▶ game", retour: "↺ back",
+  tache: "✓ done", lecture: "◇ read", pensee: "∴ thought", avis: "≠ changed mind", scene: "✦ moment" } : { avis: "≠ avis changé", scene: "✦ moment", decouverte: "◈ exploré", projet: "★ projet", debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
 function renderTimeline(items) {
   const card = el("div", "card timeline");
   card.append(el("h2", null, "Votre histoire"), el("p", "sub", "Ce qui s'est vraiment passé entre vous. Les pensées sont les siennes, pas des faits."));
