@@ -377,7 +377,8 @@ window.addEventListener('mouseup', (e) => {
   void api.invoke('char:drag', 'end');
 });
 window.addEventListener('dblclick', () => { if (hit) void api.invoke('char:click'); });
-window.addEventListener('contextmenu', (e) => { e.preventDefault(); if (hit) void api.invoke('char:menu'); });
+// pas de menu au clic droit sur elle : il est dans l'icône près de l'horloge (on ne le déclenche plus par erreur)
+window.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---------------------------------------------------------------- speech bubble (idle remarks only)
 let bubbleTimer = 0;

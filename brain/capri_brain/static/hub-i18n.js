@@ -51,7 +51,7 @@ const EN = {
   "Répondre sans redire son nom": "Answer without saying her name again", "secondes après sa réponse": "seconds after her answer",
   "Silence de fin de phrase": "End-of-sentence silence", "Personnalité": "Personality", "Son caractère avec toi.": "How she is with you.",
   "Sarcasme": "Sarcasm", "Jalousie": "Jealousy", "0 = douce, 1 = piquante": "0 = sweet, 1 = biting", "0 = jamais, 1 = très possessive": "0 = never, 1 = very possessive",
-  "Ce qu'elle ressent": "What she feels", "Ce qu'elle pense": "What she thinks", "Son envie": "Her wish",
+  "Ce qu'elle ressent": "What she feels", "Bavarde": "Chatty", "0 = discrète, 1 = parle tout le temps": "0 = quiet, 1 = talks all the time", "Ce qu'elle pense": "What she thinks", "Son envie": "Her wish",
   "Ses avis à elle, relevés dans ce qu'elle t'a vraiment dit.": "Her own opinions, taken from what she actually told you.", "Pas encore d'avis noté.": "No opinion noted yet.", "Ses découvertes": "Her discoveries", "Rien exploré pour l'instant.": "Nothing explored yet.",
   "Ce qu'elle explore par curiosité (Wikipédia, lecture seule).": "What she explores out of curiosity (Wikipedia, read only).",
   "Explorer des sujets d'elle-même": "Explore topics on her own", "Wikipédia, lecture seule": "Wikipedia, read only", "Explorations par jour": "Explorations per day", "au plus": "at most", "Ses projets": "Her projects", "Pas encore de projet.": "No project yet.", "Votre histoire": "Your story",

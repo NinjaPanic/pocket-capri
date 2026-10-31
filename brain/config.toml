@@ -74,6 +74,9 @@ absence_minutes = 20
 # seulement entre ces heures, jamais pendant un jeu en plein écran.
 spontane_minutes = 8
 spontane_heures = [9, 23]
+# Bavarde : 0 = discrète (elle vient rarement), 0.5 = équilibré, 1 = elle parle tout le temps, comme quelqu'un à côté
+# de toi. Quand elle n'a rien à dire, elle retourne à ses activités à elle.
+bavardage = 0.5
 # Elle réagit à ce qui se passe sur le PC (jeu lancé ou fermé, réseau, clé USB, processeur qui chauffe,
 # batterie, longue session) : un geste et une bulle, et quelques mots seulement quand ça compte.
 reactions_pc = true

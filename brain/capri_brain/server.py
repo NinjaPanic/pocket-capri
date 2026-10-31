@@ -420,8 +420,11 @@ class Capri:
             last = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
             # elle parle comme une personne : quelques phrases, sauf si on lui demande quelque chose de long
             wants_long = re.search(r"\b(explique|détaille|liste|code|programme|étapes|tuto|résume|écris[- ]moi|raconte)", text, re.I)
-            gate = QuestionGate("?" not in last[-80:] and random.random() < 0.35,
-                                max_sentences=0 if wants_long else 5 if spoken else 7, already_said=self._recent_replies())
+            # bavarde : elle relance plus souvent la conversation et parle un peu plus longtemps
+            chatty = self._chatty()
+            gate = QuestionGate("?" not in last[-80:] and random.random() < 0.15 + 0.4 * chatty,
+                                max_sentences=0 if wants_long else round(3 + 4 * chatty) if spoken else 7,
+                                already_said=self._recent_replies())
             self.turn.mark("contexte")
             if self.pending:
                 # une action sensible attend son « oui » : la question est fixe, le modèle ne peut pas prétendre l'avoir faite
@@ -1077,7 +1080,8 @@ class Capri:
 
                 # Elle vient te parler d'elle-même, quand ça lui prend
                 # jamais en pleine discussion : au moins 10 minutes après votre dernier échange
-                talked_recently = now - (self.memory.last_message_ts() or 0) < 180
+                # bavarde, elle revient vite après votre dernier échange ; discrète, elle laisse un vrai silence
+                talked_recently = now - (self.memory.last_message_ts() or 0) < 180 * (1.5 - self._chatty())
                 if now < next_talk or talked_recently or idle > 600 or quiet or self.lock.locked():
                     continue
                 event = await self.something_to_say(hour, late_night_done)
@@ -1197,6 +1201,10 @@ class Capri:
             if kind == "caresse":
                 self.heart.grow("complicite", 0.005)
 
+    def _chatty(self) -> float:
+        """Réglage « bavarde » (0 = discrète, 0,5 = comme avant, 1 = parle tout le temps)."""
+        return max(0.0, min(1.0, float(self.cfg.get("vie", {}).get("bavardage", 0.5))))
+
     def _talk_delay(self, cfg: dict) -> float:
         """Combien de temps avant qu'elle revienne te parler : plus elle tient à toi, plus elle vient ;
         si tu l'ignores, elle se fait plus discrète."""
@@ -1206,7 +1214,8 @@ class Capri:
         warmth = 1.25 - self.inner.state["affection"] / 200  # 1.25 → 0.75
         shy = 1 + self.inner.state["initiatives_ignored"] * 0.8
         # ce qu'elle ressent : l'ennui ou la tendresse la font venir plus tôt, l'agacement ou la fatigue plus tard
-        return base * warmth * shy * self.heart.talk_factor() * random.uniform(0.6, 1.4)
+        chatty = max(0.25, 2.0 - 2.0 * self._chatty())  # 0 → deux fois plus rare, 1 → quatre fois plus souvent
+        return base * warmth * shy * chatty * self.heart.talk_factor() * random.uniform(0.6, 1.4)
 
     async def live_a_bit(self) -> None:
         """Elle change d'activité, lit parfois un vrai article, et note ce qu'elle pense dans son journal."""
@@ -1403,7 +1412,7 @@ class Capri:
 
 # Réglages modifiables depuis le hub : section → clés autorisées et leur type.
 EDITABLE = {
-    "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int, "reactions_pc": bool,
+    "vie": {"accueil": bool, "absence_minutes": int, "spontane_minutes": int, "bavardage": float, "reactions_pc": bool,
             "liberer_gpu_en_jeu": bool, "curiosite": bool, "curiosite_par_jour": int},
     "mains": {"confirmer": bool},
     "personnalite": {"sarcasme": float, "jalousie": float},

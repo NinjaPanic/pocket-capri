@@ -266,7 +266,7 @@ class SentenceSplitter:
 # Voix naturelles de Microsoft (gratuites, sans clé, mais en ligne) : bien plus humaines que la voix locale.
 NATURAL_VOICES = {
     # elles parlent aussi anglais (voix « multilingues ») : on peut garder la même en changeant de langue
-    "fr-FR-VivienneMultilingualNeural": "Vivienne (France, très expressive) · FR/EN",
+    "fr-FR-VivienneMultilingualNeural": "Vivienne (France, très expressive, lente et instable) · FR/EN",
     "en-US-AvaMultilingualNeural": "Ava (États-Unis, très naturelle) · EN/FR",
     "en-US-EmmaMultilingualNeural": "Emma (États-Unis, joyeuse) · EN/FR",
     "en-US-JennyNeural": "Jenny (États-Unis, douce) · EN",
@@ -278,7 +278,8 @@ NATURAL_VOICES = {
     "en-CA-ClaraNeural": "Clara (Canada) · EN",
     "en-IE-EmilyNeural": "Emily (Irlande) · EN",
     "en-NZ-MollyNeural": "Molly (Nouvelle-Zélande) · EN",
-    "fr-FR-DeniseNeural": "Denise (France, rapide)",
+    "fr-FR-DeniseNeural": "Denise (France) — rapide et stable, recommandée",
+    "fr-FR-EloiseNeural": "Éloïse (France, jeune) — rapide",
     "fr-CA-SylvieNeural": "Sylvie (Québec)",
     "fr-BE-CharlineNeural": "Charline (Belgique)",
     "fr-CH-ArianeNeural": "Ariane (Suisse)",

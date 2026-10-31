@@ -250,6 +250,7 @@ const SETTINGS = [
   ["Vie", "Ce qu'elle fait d'elle-même.", "vie", [
     ["accueil", "Remarquer ton retour", "", "bool"],
     ["absence_minutes", "Absence avant de te saluer", "minutes", "number", 1, 240],
+    ["bavardage", "Bavarde", "0 = discrète, 1 = parle tout le temps", "range", 0, 1, 0.05],
     ["spontane_minutes", "Phrase spontanée après", "minutes de silence, 0 = jamais", "number", 0, 600],
     ["reactions_pc", "Réagir à ce qui se passe sur le PC", "jeu lancé, réseau, clé USB, processeur qui chauffe, longue session", "bool"],
     ["liberer_gpu_en_jeu", "Libérer la carte graphique pendant un jeu", "son modèle revient quand le jeu se ferme", "bool"],
@@ -457,8 +458,17 @@ async function voiceCard() {
     row("Sa voix", pick, reset, file);
     card.append(el("p", "sub", "Un enregistrement clair de 5 à 15 secondes d'une voix que tu as le droit d'utiliser (la tienne, ou quelqu'un d'accord). Elle parlera avec ce timbre."));
   }
+  // rangées par langue, les plus rapides et stables d'abord (mesuré le 31/10 : Denise 0,6 s, Éloïse 0,8 s ;
+  // les « multilingues » 3 s et des échecs)
   const voice = el("select", "field");
-  for (const [k, l] of Object.entries(v.natural)) { const o = el("option", null, l); o.value = k; voice.append(o); }
+  const FAST = { "fr-FR-DeniseNeural": "⚡ ", "fr-FR-EloiseNeural": "⚡ " };
+  const groups = [[LANG === "en" ? "French" : "Français", (k) => k.startsWith("fr-")], [LANG === "en" ? "English" : "Anglais", (k) => k.startsWith("en-")]];
+  for (const [title, test] of groups) {
+    const g = el("optgroup"); g.label = title;
+    const keys = Object.keys(v.natural).filter(test).sort((x, y) => (FAST[y] ? 1 : 0) - (FAST[x] ? 1 : 0));
+    for (const k of keys) { const o = el("option", null, (FAST[k] ?? "") + v.natural[k]); o.value = k; g.append(o); }
+    voice.append(g);
+  }
   voice.value = v.voice;
   voice.onchange = () => put("tts_natural_voice", voice.value);
   // une voix par langue : on règle celle de la langue qu'elle parle en ce moment
