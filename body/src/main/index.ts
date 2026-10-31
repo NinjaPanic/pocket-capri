@@ -959,18 +959,14 @@ let farewellDone: (() => void) | null = null;
 async function farewell() {
   if (!charWin || charWin.isDestroyed() || !charWin.isVisible()) return;
   games?.stop();
-  void showBubble(lang === 'en' ? 'See you soon…' : 'À plus tard…');
-  cue({ type: 'farewell' });
-  // son visage sur tout l'écran : « à plus », un clin d'œil, il se déchire, et l'écran s'éteint comme une vieille télé
-  const b = charWin.getBounds();
-  const scene = new Promise<void>((resolve) => setTimeout(() => {
-    createScene(screen.getDisplayMatching(b).bounds, 'outro', { x: b.x + b.width / 2, y: b.y + b.height * 0.45 }, lang === 'en');
-    setTimeout(resolve, SCENE_MS.outro);
-  }, 0));
-  const her = new Promise<void>((resolve) => { farewellDone = resolve; setTimeout(resolve, 2800); });
-  await Promise.all([scene, her]);
-  farewellDone = null;
   bubbleWin?.hide();
+  // son visage sur tout l'écran : « à plus », un clin d'œil, il se déchire, et l'écran s'éteint comme une vieille télé ;
+  // son petit corps, lui, disparaît dès que la scène apparaît : il ne reste que l'animation
+  const b = charWin.getBounds();
+  const scene = createScene(screen.getDisplayMatching(b).bounds, 'outro', { x: b.x + b.width / 2, y: b.y + b.height * 0.45 }, lang === 'en');
+  scene.once('show', () => { if (charWin && !charWin.isDestroyed()) conceal(charWin); });
+  setTimeout(() => { if (charWin && !charWin.isDestroyed()) conceal(charWin); }, 600); // au cas où la scène tarde
+  await new Promise((r) => setTimeout(r, SCENE_MS.outro));
 }
 app.on('window-all-closed', () => { /* reste dans la barre des tâches jusqu'à « Quitter » */ });
 process.on('uncaughtException', (e) => { log?.error('exception non gérée', { error: e }); });

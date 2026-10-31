@@ -1,7 +1,7 @@
 import rigData from '../../../assets/desktop-sprites/rig.json';
 import faceData from '../../../assets/desktop-sprites/faces.json';
 import { Mat, prng } from './geometry';
-import { clipOutFace, drawFace, type FaceConfig } from './face';
+import { clipOutFace, clipOutHead, drawFace, type FaceConfig } from './face';
 import { PALETTE as C } from './palette';
 import type { Params } from './params';
 import { drift } from './motion';
@@ -64,7 +64,8 @@ export class Rig {
   }
 
   /** Draw every piece in depth order; ctx must already map sprite px to the screen. */
-  draw(ctx: CanvasRenderingContext2D, pose: Pose, stretch: Pose, colour: Record<string, string>, paintHair: (p: Path2D) => void, headScale = 1) {
+  draw(ctx: CanvasRenderingContext2D, pose: Pose, stretch: Pose, colour: Record<string, string>, paintHair: (p: Path2D) => void, headScale = 1,
+    shield?: (ctx: CanvasRenderingContext2D) => void) {
     this.solve(pose, stretch, headScale);
     for (const b of [...RIG.bones].sort((a, c) => a.z - c.z)) {
       const m = this.world.get(b.name)!;
@@ -76,7 +77,11 @@ export class Rig {
         if (!path) continue;
         if (cls === 'hair') { paintHair(path); continue; }
         ctx.fillStyle = colour[cls];
+        // la tête dessinée (penchée) et les mèches noires restent hors de son visage, posé droit par-dessus
+        const guard = shield && (b.name === 'head' || b.name === 'hair');
+        if (guard) { ctx.save(); shield(ctx); }
         ctx.fill(path, 'evenodd'); // (plus de liseré noir sur le bras rose levé : il dessinait des bordures noires sales)
+        if (guard) ctx.restore();
       }
       ctx.restore();
     }
@@ -178,13 +183,7 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
   const base = base0.translate(0, drop);
   if (debug) debug.base = base;
   const colour: Record<string, string> = { violet: C.violet, crimson: F.hairColor, ink: C.ink, green: F.maskColor };
-  ctx.save();
-  ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
-  const paint = hairPainter(ctx, F.hairColor, t, rig.frameW, rig.frameH);
-  rig.draw(ctx, pose, stretch, colour, paint, F.headScale ?? 1);
-  ctx.restore();
-
-  // the face rides the head bone
+  // the face rides the head bone (placed first: the drawn head is kept out of it)
   const a = HEAD_ANCHOR;
   const at = rig.place('head', a.x, a.y);
   const [hx, hy] = base.apply([at.x + FACE_SHIFT, at.y]);
@@ -193,6 +192,13 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
   // droit et de face : sans la pente du dessin (a.angle), seulement ce que sa tête fait vraiment (hochement, penché)
   const angle = (F.faceAngle * Math.PI) / 180 * flip + at.angle * flip;
   const head = new Mat().translate(hx + F.faceX * s * flip, hy + F.faceY * s).rotate(angle).scale(s * flip, s).translate(0, -F.eyeY);
+  const outer = ctx.getTransform();
+  const shield = (c: CanvasRenderingContext2D) => { const cur = c.getTransform(); c.setTransform(outer); clipOutHead(c, head, F); c.setTransform(cur); };
+  ctx.save();
+  ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
+  const paint = hairPainter(ctx, F.hairColor, t, rig.frameW, rig.frameH);
+  rig.draw(ctx, pose, stretch, colour, paint, F.headScale ?? 1, shield);
+  ctx.restore();
   const fp = { ...p, headYaw: 0, turn: 0 };
   drawFace(ctx, head, fp, s, undefined, false, 'without');
 

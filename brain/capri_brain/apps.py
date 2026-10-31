@@ -112,6 +112,64 @@ def _press(win: eyes.Window, exact: re.Pattern) -> str | None:
     return None
 
 
+def _fold(text: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+
+
+def play_search(recherche: str) -> str:
+    """« Mets Blinding Lights » : cherche sur Spotify et lance le résultat qui correspond le mieux (son bouton
+    « Lire … » / « Play … » dont le nom contient le plus de mots de la recherche). Jamais un autre bouton."""
+    import os
+    from urllib.parse import quote
+    win = eyes.find_window("spotify")
+    if not win:
+        os.startfile("spotify:")  # Spotify se lance
+        for _ in range(16):
+            time.sleep(0.5)
+            if win := eyes.find_window("spotify"):
+                break
+        else:
+            return "ÉCHEC : Spotify ne s'ouvre pas (il est bien installé ?)."
+        time.sleep(2)
+    os.startfile("spotify:search:" + quote(recherche))
+    words = [w for w in re.findall(r"\w+", _fold(recherche)) if len(w) > 1]
+    import uiautomation as auto
+    for attempt in range(3):
+        time.sleep(2.0 if attempt == 0 else 1.5)
+        eyes._awake.discard(win.hwnd)
+        eyes._wake_chromium(win.hwnd)
+        best, best_score = None, 0
+        with eyes._lock, auto.UIAutomationInitializerInThread():
+            root = auto.ControlFromHandle(win.hwnd)
+            start = time.time()
+            for ctrl, _ in auto.WalkControl(root, maxDepth=60):
+                if time.time() - start > 6:
+                    break
+                try:
+                    if ctrl.ControlTypeName != "ButtonControl":
+                        continue
+                    name = (ctrl.Name or "").strip()
+                except Exception:
+                    continue
+                m = re.match(r"^(?:play|lire|ecouter|lecture de)\s+(.+)", _fold(name))
+                if not m:
+                    continue
+                score = sum(w in m.group(1) for w in words)
+                if score > best_score:  # le premier à égalité : le meilleur résultat est en haut de la page
+                    best, best_score = (ctrl, name), score
+            if best and best_score >= max(1, len(words) // 2):
+                ctrl, name = best
+                for how in ("GetInvokePattern", "GetLegacyIAccessiblePattern"):
+                    try:
+                        pat = getattr(ctrl, how)()
+                        pat.Invoke() if how == "GetInvokePattern" else pat.DoDefaultAction()
+                        return f"Sur Spotify, « {name} » lancé."
+                    except Exception:
+                        continue
+    return f"ÉCHEC : rien trouvé sur Spotify pour « {recherche} » (la recherche est ouverte : lis la fenêtre et clique)."
+
+
 def control(appli: str, action: str) -> str:
     action = action.lower().strip().replace(" ", "_").replace("é", "e").replace("è", "e")
     win = _find(appli)

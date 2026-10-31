@@ -208,9 +208,9 @@ const LABELS = LANG === "en" ? {
   controler_appli: "app", voir_fenetres: "windows", lire_fenetre: "reading", regarder_ecran: "screenshot", activer_fenetre: "window",
   cliquer: "click", cliquer_position: "click", ecrire: "typing", touches: "keys", defiler: "scroll",
   commande: "command", parametres_windows: "settings", ecran: "screen", presse_papiers: "clipboard", capture_ecran: "screenshot",
-  creer_rappel: "reminder", annuler_rappel: "reminder", reporter_rappel: "reminder", lister_rappels: "reminders", montrer: "show",
+  jouer_musique: "music", creer_rappel: "reminder", annuler_rappel: "reminder", reporter_rappel: "reminder", lister_rappels: "reminders", montrer: "show",
 } : {
-  commande: "commande", parametres_windows: "paramètres", ecran: "écran", presse_papiers: "presse-papiers", capture_ecran: "capture",
+  jouer_musique: "musique", commande: "commande", parametres_windows: "paramètres", ecran: "écran", presse_papiers: "presse-papiers", capture_ecran: "capture",
   ouvrir_programme: "programme", fermer_programme: "fermer", ouvrir_site: "site", rechercher_web: "recherche", ouvrir_dossier: "dossier",
   volume: "volume", musique: "musique", etat_du_pc: "état PC", alimentation: "alimentation", ne_pas_deranger: "silence",
   controler_appli: "appli", voir_fenetres: "fenêtres", lire_fenetre: "lecture", regarder_ecran: "capture", activer_fenetre: "fenêtre",

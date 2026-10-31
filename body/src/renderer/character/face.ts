@@ -155,6 +155,21 @@ export function clipOutFace(ctx: CanvasRenderingContext2D, head: Mat, F: FaceCon
   ctx.clip('evenodd');
 }
 
+/**
+ * Clip that keeps the drawn body's own head (tilted on the drawing) and its black locks out of the zone of her face:
+ * the whole mask a little wider, down to the pointed chin. Above the mask, her black spikes and hair stay.
+ */
+export function clipOutHead(ctx: CanvasRenderingContext2D, head: Mat, F: FaceConfig) {
+  const hw = F.bandWidth + 7, top = F.bandY - F.bandHeight / 2 - 1, mid = F.bandY + F.bandHeight / 2, bot = mid + F.chinLength + 2;
+  const pts: Pt[] = ([[-hw, top], [hw, top], [hw, mid + 2], [hw * 0.04, bot], [-hw, mid + 2]] as Pt[]).map((q) => head.apply(q));
+  ctx.beginPath();
+  ctx.rect(-1e5, -1e5, 2e5, 2e5);
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (const [x, y] of pts.slice(1)) ctx.lineTo(x, y);
+  ctx.closePath();
+  ctx.clip('evenodd');
+}
+
 /** The violet offset under the head outline: off while she sits (it showed in front of her hair). */
 let faceOutline = true;
 export function setFaceOutline(on: boolean) { faceOutline = on; }

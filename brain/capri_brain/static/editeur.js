@@ -236,6 +236,16 @@
     ctx2.closePath();
     ctx2.clip("evenodd");
   }
+  function clipOutHead(ctx2, head, F) {
+    const hw = F.bandWidth + 7, top = F.bandY - F.bandHeight / 2 - 1, mid = F.bandY + F.bandHeight / 2, bot = mid + F.chinLength + 2;
+    const pts = [[-hw, top], [hw, top], [hw, mid + 2], [hw * 0.04, bot], [-hw, mid + 2]].map((q) => head.apply(q));
+    ctx2.beginPath();
+    ctx2.rect(-1e5, -1e5, 2e5, 2e5);
+    ctx2.moveTo(pts[0][0], pts[0][1]);
+    for (const [x, y] of pts.slice(1)) ctx2.lineTo(x, y);
+    ctx2.closePath();
+    ctx2.clip("evenodd");
+  }
   var faceOutline = true;
   function drawFace(ctx2, head, p, S, paintHair, ownHair = true, mouthMode = "with") {
     const F = cfg;
@@ -1724,7 +1734,7 @@
       }
     }
     /** Draw every piece in depth order; ctx must already map sprite px to the screen. */
-    draw(ctx2, pose, stretch, colour, paintHair, headScale = 1) {
+    draw(ctx2, pose, stretch, colour, paintHair, headScale = 1, shield) {
       this.solve(pose, stretch, headScale);
       for (const b of [...RIG.bones].sort((a, c) => a.z - c.z)) {
         const m = this.world.get(b.name);
@@ -1739,7 +1749,13 @@
             continue;
           }
           ctx2.fillStyle = colour[cls];
+          const guard = shield && (b.name === "head" || b.name === "hair");
+          if (guard) {
+            ctx2.save();
+            shield(ctx2);
+          }
           ctx2.fill(path, "evenodd");
+          if (guard) ctx2.restore();
         }
         ctx2.restore();
       }
@@ -1834,11 +1850,6 @@
     const base = base0.translate(0, drop);
     if (debug) debug.base = base;
     const colour = { violet: PALETTE.violet, crimson: F.hairColor, ink: PALETTE.ink, green: F.maskColor };
-    ctx2.save();
-    ctx2.transform(base.a, base.b, base.c, base.d, base.e, base.f);
-    const paint = hairPainter(ctx2, F.hairColor, t, rig2.frameW, rig2.frameH);
-    rig2.draw(ctx2, pose, stretch, colour, paint, F.headScale ?? 1);
-    ctx2.restore();
     const a = HEAD_ANCHOR;
     const at = rig2.place("head", a.x, a.y);
     const [hx, hy] = base.apply([at.x + FACE_SHIFT, at.y]);
@@ -1846,6 +1857,18 @@
     const s = a.dist * k * F.faceScale * (F.headScale ?? 1) / (2 * F.eyeSpacing);
     const angle = F.faceAngle * Math.PI / 180 * flip + at.angle * flip;
     const head = new Mat().translate(hx + F.faceX * s * flip, hy + F.faceY * s).rotate(angle).scale(s * flip, s).translate(0, -F.eyeY);
+    const outer = ctx2.getTransform();
+    const shield = (c) => {
+      const cur = c.getTransform();
+      c.setTransform(outer);
+      clipOutHead(c, head, F);
+      c.setTransform(cur);
+    };
+    ctx2.save();
+    ctx2.transform(base.a, base.b, base.c, base.d, base.e, base.f);
+    const paint = hairPainter(ctx2, F.hairColor, t, rig2.frameW, rig2.frameH);
+    rig2.draw(ctx2, pose, stretch, colour, paint, F.headScale ?? 1, shield);
+    ctx2.restore();
     const fp = { ...p, headYaw: 0, turn: 0 };
     drawFace(ctx2, head, fp, s, void 0, false, "without");
     if (F.hairFront >= 0.5) {
