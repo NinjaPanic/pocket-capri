@@ -31,8 +31,11 @@ RECIPES: dict[str, dict[str, dict]] = {
                                  r"Activer la lecture aléatoire intelligente|Désactiver la lecture aléatoire"},
         "repeter": {"buttons": r"Enable repeat|Enable repeat one|Disable repeat|Activer la répétition|"
                                r"Activer la répétition d'un titre|Désactiver la répétition"},
+        # « like la musique » : la chanson EN COURS rejoint ses titres likés (jamais « ajouter à une playlist »)
         "j_aime": {"buttons": r"Add to Liked Songs|Remove from Liked Songs|Save to Your Library|Remove from Your Library|"
-                              r"Ajouter aux Titres likés|Ajouter à Titres likés|Retirer des Titres likés|Ajouter à la playlist"},
+                              r"Ajouter aux Titres likés|Ajouter à Titres likés|Retirer des Titres likés"},
+        # « va dans mes titres likés » : ouvre la page, sans rien modifier
+        "titres_likes": {"uri": "spotify:collection:tracks"},
     },
     "navigateur": {
         "nouvel_onglet": {"keys": "ctrl+t"}, "fermer_onglet": {"keys": "ctrl+w"}, "rouvrir_onglet": {"keys": "ctrl+maj+t"},
@@ -127,6 +130,10 @@ def control(appli: str, action: str) -> str:
     if not recipe:
         known = ", ".join(list(RECIPES.get(_app_of(appli), {})) + list(WINDOW_ACTIONS))
         return f"ÉCHEC : action « {action} » inconnue pour {appli} (connues : {known}). Sinon, lis la fenêtre et clique."
+    if "uri" in recipe:
+        import os
+        os.startfile(recipe["uri"])  # lien interne de l'appli : ouvre la page directement
+        return f"Dans {win.app}, page « {action.replace('_', ' ')} » ouverte."
     if "keys" in recipe:
         eyes.focus(win)
         hands.target(win)

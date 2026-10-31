@@ -172,6 +172,37 @@ vient bien de la chaîne vocale, pas de conditions plus favorables.
   meilleures. **Vérifié de bout en bout** : sujet proposé « aurores boréales » → page « Aurore polaire » lue,
   synthèse et source enregistrées.
 
+### 2.6 Mesure avec Denise et corrections (31 octobre)
+
+**Latence avec la voix Denise** (même outil, PC libre, 4 passes, fin de ta phrase → premier son) :
+
+| Scénario | Ava (avant) | Denise |
+|---|---:|---:|
+| Question simple | 2 386 / 4 291 ms | 2 833 / **2 926** ms |
+| Question avec souvenir | 1 509 / 4 239 ms | 1 624 / **2 468** ms |
+| Réponse longue | 2 708 / 4 192 ms | 2 874 / **3 234** ms |
+| Nouvelle réponse après une interruption | 4 523 / 6 427 ms | **1 750** / 2 834 ms |
+
+Les médianes sont proches. En revanche, les pires cas ont nettement baissé, et la reprise après une interruption
+est 2,6 fois plus rapide. Côté cerveau, la première phrase est prête 0,8 à 1,6 s après la fin de ta parole ; le
+reste, ce sont les 0,6 s de silence attendues pour savoir que tu as fini, et la synthèse vocale.
+(Le contexte du modèle a grossi avec ses émotions et ses projets : ~4 600 tokens au lieu de ~4 300.)
+
+**Corrections d'après ton historique du 31 octobre :**
+* **Tics de langage** (« je suis assise sur ton bureau, j'écoute », « j'ai déjà fait "test" avec Mathoste ») :
+  un petit modèle recopie ce qu'il voit dans l'historique, et ça s'auto-entretenait. Désormais, une phrase dite dans
+  deux réponses différentes est retirée de l'historique envoyé au modèle. Une phrase qui ressemble à plus de 80 % à
+  l'une de ses 8 dernières réponses est sautée avant d'être dite ou affichée. Ses prises de parole spontanées
+  reçoivent la liste de ce qu'elle t'a dit récemment, et une initiative faite uniquement de redites est abandonnée.
+* **« Va dans mes titres likés »** : la phrase n'était pas reconnue comme une demande d'action, et elle prétendait
+  l'avoir faite. Pire, son action « j'aime » de Spotify savait aussi cliquer sur « Ajouter à la playlist » : elle a
+  probablement ajouté la chanson en cours à une playlist. Désormais, « j'aime » ne fait que liker la chanson en cours,
+  et une nouvelle action `titres_likes` ouvre directement la page de tes titres likés, sans rien modifier.
+* **Journal des actions sur disque** (`data/actions.jsonl` : nom, réussite, résultat, et seulement la longueur des
+  textes tapés), pour comprendre après coup ce que ses mains ont vraiment fait.
+* **Assise, elle n'avait pas de bouche** : le dessin assis s'arrêtait avant l'étape qui peint la bouche. C'est
+  corrigé, et vérifié sur un rendu avant/après (bouche au repos, bouche ouverte quand elle parle).
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)

@@ -284,6 +284,7 @@ export class SpriteBody {
       ctx.beginPath(); ctx.rect(0, 0, anchor.x - anchor.dist * 0.15 * grow, info.frameH); ctx.clip();
       bigHair(vec.get('hair')!);
       ctx.restore();
+      drawFace(ctx, head, fp, s, undefined, false, 'only'); // sa bouche aussi, assise (elle sautait cette étape)
       return true;
     }
     if (vec && F.hairFront >= 0.5) {

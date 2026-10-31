@@ -234,12 +234,16 @@ class QuestionGate:
 
     _END = re.compile(r"[^.!?…]*[.!?…]+[»\"')\]]*\s*")
 
-    def __init__(self, allow_questions: bool, max_sentences: int = 0):
+    def __init__(self, allow_questions: bool, max_sentences: int = 0, already_said: list[str] | None = None):
         self.allow = allow_questions
         self.max = max_sentences  # 0 = pas de limite
         self.buffer = ""
         self.sentences = 0
         self.seen: set[str] = set()
+        # ses phrases des dernières réponses : un petit modèle recopie volontiers ce qu'il voit dans l'historique,
+        # et une phrase anodine (« je suis assise sur ton bureau ») devenait un tic répété à chaque réponse
+        self.already = [k for k in (_key(s) for t in already_said or [] for s in _SPLIT.split(t)) if len(k) > 14]
+        self.dropped = 0
         self.stopped = False  # elle s'est mise à radoter, ou elle a assez parlé : on arrête là
 
     def feed(self, text: str) -> str:
@@ -257,11 +261,14 @@ class QuestionGate:
     def _keep(self, sentence: str) -> str:
         if self.stopped:
             return ""
-        key = re.sub(r"\W+", " ", sentence.lower()).strip()
+        key = _key(sentence)
         if len(key) > 12 and key in self.seen:
             self.stopped = True
             return ""
         self.seen.add(key)
+        if len(key) > 14 and any(_similar(key, old) for old in self.already):
+            self.dropped += 1  # déjà dite récemment : on la saute, la suite de la réponse continue
+            return ""
         if self.max and self.sentences >= self.max:
             self.stopped = True
             return ""
@@ -269,6 +276,32 @@ class QuestionGate:
         if not self.allow and self.sentences > 1 and sentence.rstrip(" »\"')]").endswith("?"):
             return ""
         return sentence
+
+
+_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+
+
+def _key(sentence: str) -> str:
+    return re.sub(r"\W+", " ", sentence.lower()).strip()
+
+
+def _similar(a: str, b: str) -> bool:
+    """Même phrase, ou presque (un mot changé, un chiffre différent)."""
+    if a == b:
+        return True
+    from difflib import SequenceMatcher
+    return abs(len(a) - len(b)) < max(len(a), len(b)) * 0.4 and SequenceMatcher(None, a, b).ratio() > 0.8
+
+
+def repeated_sentences(replies: list[str]) -> set[str]:
+    """Les phrases qu'elle a dites dans au moins deux réponses différentes : ses tics."""
+    seen: dict[str, int] = {}
+    keys_by_reply = [{_key(s) for s in _SPLIT.split(r) if len(_key(s)) > 14} for r in replies]
+    for keys in keys_by_reply:
+        for k in keys:
+            match = next((o for o in seen if _similar(k, o)), k)
+            seen[match] = seen.get(match, 0) + 1
+    return {k for k, n in seen.items() if n >= 2}
 
 
 def strip_emoji(text: str) -> str:

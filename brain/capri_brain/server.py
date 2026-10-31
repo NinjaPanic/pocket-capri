@@ -38,8 +38,8 @@ from .llm import LLM, PROVIDERS, LLMError, ToolCall
 from .memory import Memory
 from .perf import Perf, Turn
 from .senses import Event, Senses
-from .persona import (MoodParser, QuestionGate, about_him, build_context, build_extraction_prompt,
-                      build_system_prompt, clean_reply, strip_emoji)
+from .persona import (MoodParser, QuestionGate, _key, _similar, about_him, build_context, build_extraction_prompt,
+                      build_system_prompt, clean_reply, repeated_sentences, strip_emoji)
 
 PACKAGE = Path(__file__).resolve().parent
 BRAIN = PACKAGE.parent
@@ -307,9 +307,13 @@ class Capri:
             last = recent[-1]["id"]
             first = -(-(last - keep - block + 1) // block) * block  # aligné sur un multiple de `block`
             recent = [m for m in recent if m["id"] >= first]
+        tics = repeated_sentences([m["content"] for m in recent if m["role"] == "assistant"])
         messages = []
         for m in recent:
             content = m["content"]
+            if m["role"] == "assistant" and tics:
+                kept = [s for s in re.split(r"(?<=[.!?…])\s+", content) if not any(_similar(_key(s), t) for t in tics)]
+                content = " ".join(kept).strip() or "…"
             if m["role"] == "assistant":
                 # On remet le marqueur pour que le modèle garde l'habitude de l'écrire.
                 content = f"[{m['mood'] or 'neutre'}] {strip_emoji(content)}"
@@ -410,7 +414,7 @@ class Capri:
             # elle parle comme une personne : quelques phrases, sauf si on lui demande quelque chose de long
             wants_long = re.search(r"\b(explique|détaille|liste|code|programme|étapes|tuto|résume|écris[- ]moi|raconte)", text, re.I)
             gate = QuestionGate("?" not in last[-80:] and random.random() < 0.35,
-                                max_sentences=0 if wants_long else 5 if spoken else 7)
+                                max_sentences=0 if wants_long else 5 if spoken else 7, already_said=self._recent_replies())
             self.turn.mark("contexte")
             if self.pending:
                 # une action sensible attend son « oui » : la question est fixe, le modèle ne peut pas prétendre l'avoir faite
@@ -419,6 +423,9 @@ class Capri:
                 reply = await self._respond(messages, reply_id, gate, prelude)
         if reply is not None:
             self.spawn(self.learn(text, reply, memories))
+
+    def _recent_replies(self, n: int = 8) -> list[str]:
+        return [m["content"] for m in self.memory.recent_messages(n * 2) if m["role"] == "assistant"][-n:]
 
     def rebuild_system(self) -> None:
         """Sa personnalité (capri.txt) avec son prénom à lui dedans ; refait quand il le donne dans le hub."""
@@ -495,7 +502,10 @@ class Capri:
                                             f"dit. C'est toi qui prends la parole.] {event}"},
             ]
             log.info("Capri prend la parole : %s", event[:120])
-            return await self._respond(messages, reply_id, QuestionGate(True, max_sentences=4)) is not None
+            said = self._recent_replies(10)
+            messages[-1]["content"] += ("\nCe que tu lui as dit récemment (ne le redis surtout pas, ni presque pareil) : "
+                                       + " / ".join(r[:140] for r in said[-4:])) if said else ""
+            return await self._respond(messages, reply_id, QuestionGate(True, max_sentences=4, already_said=said)) is not None
 
     async def _open_reply(self, reply_id: int) -> dict:
         """Sa réponse commence : affichée et dite phrase par phrase. Ouverte en avance quand elle parle en agissant."""
@@ -619,6 +629,10 @@ class Capri:
                     self.perf.finish(turn)
 
         reply = clean_reply((prelude[0] + " " if prelude else "") + "".join(parts))
+        if not reply and gate and gate.dropped:
+            log.info("Réponse abandonnée : elle n'aurait fait que se répéter")
+            await self.broadcast({"type": "done", "text": "", "mood": self.mood})
+            return None
         if interrupted:
             # ce qu'elle disait quand il l'a coupée : la suite de la conversation le saura
             self.interrupted = (time.time(), reply)
@@ -735,6 +749,13 @@ class Capri:
         self.heart.feel("action_reussie" if entry["ok"] else "action_ratee", 0.5)
         self.action_log.append(entry)
         await self.broadcast({"type": "action", **entry})
+        try:
+            with (DATA / "actions.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps({k: entry[k] for k in ("ts", "name", "ok", "result")} | {"args": {
+                    k: (str(v)[:80] if k != "texte" else f"({len(str(v))} caractères)") for k, v in args.items()}},
+                    ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     async def settle_pending(self, text: str) -> str | None:
         """Le message qui suit une demande de confirmation : « oui » exécute l'action, tout le reste l'annule."""
