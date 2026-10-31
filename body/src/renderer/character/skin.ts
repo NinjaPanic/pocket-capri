@@ -1,6 +1,7 @@
 import skinData from '../../../assets/skin/skin.json';
 import { drawFace, type FaceConfig } from './face';
 import { Mat } from './geometry';
+import { noise1 } from './motion';
 import type { Params } from './params';
 import { ARM_L_REST, FOOT_REST, poseFromParams } from './rig';
 
@@ -163,6 +164,24 @@ const S = (FEET_Y - TOP_Y) / (SKIN.feet - 53);
 const CENTER_X = 575;
 export const FROM_DRAWING = new Mat().translate(FRAME_W / 2, FEET_Y).scale(S).translate(-CENTER_X, -SKIN.feet);
 
+/** Sa vie de tous les instants : chaque articulation bouge un peu, à son rythme (bruit doux, jamais en boucle). Moins
+ *  quand elle dort. Degrés : [os, amplitude, vitesse]. */
+const LIFE: [string, number, number][] = [
+  ['torso', 1.4, 0.21], ['head', 2.6, 0.29], ['hair', 2.2, 0.16],
+  ['upperArmL', 3, 0.25], ['forearmL', 4, 0.31], ['handL', 7, 0.43],
+  ['upperArmR', 3, 0.23], ['forearmR', 4, 0.34], ['handR', 7, 0.39],
+  ['thighL', 1, 0.17], ['shinL', 1.6, 0.2], ['footL', 2.5, 0.27],
+  ['thighR', 1, 0.19], ['shinR', 1.6, 0.22], ['footR', 2.5, 0.25],
+];
+/** Ce qui suit avec un temps de retard (l'avant-bras après le bras, la main après l'avant-bras, les cheveux après la
+ *  tête) : chaque os garde une version lissée de l'angle de son parent, et prend une part de l'écart. */
+const FOLLOW: [string, string, number, number][] = [
+  ['forearmL', 'upperArmL', 0.45, 7], ['handL', 'forearmL', 0.5, 9], ['forearmR', 'upperArmR', 0.45, 7], ['handR', 'forearmR', 0.5, 9],
+  ['hair', 'head', 0.6, 3], ['shinL', 'thighL', 0.3, 8], ['shinR', 'thighR', 0.3, 8],
+];
+const lagged = new Map<string, number>();
+let lastT = 0;
+
 /** Les points qui peuvent toucher le sol (pieds, genoux, hanches, mains) : le plus bas se pose sur son appui. */
 const GROUND = SKIN.bones.filter((b) => /foot|shin|thigh|hand/.test(b.name));
 
@@ -192,6 +211,16 @@ export function drawSkinned(ctx: CanvasRenderingContext2D, skin: SkinBody, base0
     pose.forearmL = (pose.forearmL ?? 0) + s * 6; pose.forearmR = (pose.forearmR ?? 0) + s * 6;
     pose.torso = (pose.torso ?? 0) - s * 2.5; pose.head = (pose.head ?? 0) + s * 1.5; pose.hair = (pose.hair ?? 0) + Math.cos(ph) * 1.5;
     bob = (1 - Math.abs(s)) * 2.5; // pieds tous deux au sol : un peu plus bas
+  }
+  // un peu de vie partout, et ce qui traîne derrière le mouvement
+  const calm = 1 - 0.7 * Math.max(0, Math.min(1, p.sleep));
+  for (const [bone, amp, speed] of LIFE) pose[bone] = (pose[bone] ?? 0) + noise1(t * speed, bone.length * 7 + amp * 13) * amp * calm;
+  const dt = Math.min(0.1, Math.max(0, t - lastT)); lastT = t;
+  for (const [bone, parent, share, rate] of FOLLOW) {
+    const now = pose[parent] ?? 0, before = lagged.get(bone) ?? now;
+    const smooth = before + (now - before) * Math.min(1, dt * rate);
+    lagged.set(bone, smooth);
+    pose[bone] = (pose[bone] ?? 0) - (now - smooth) * share; // le parent est parti devant : lui suit avec retard
   }
   skin.solve(pose, stretch);
   // son point le plus bas reste posé là où ses pieds se posaient (assise, à genoux, penchée…)

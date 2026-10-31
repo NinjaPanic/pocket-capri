@@ -33,6 +33,10 @@ BONES = {
     "thighR": ("cuisse-droite", "torso", 33), "shinR": ("jambe-droite-bas", "thighR", 34), "footR": ("pied-droit", "shinR", 35),
     "upperArmL": ("bras-noir-haut", "torso", 70), "forearmL": ("avant-bras-noir", "upperArmL", 71), "handL": ("main-noire", "forearmL", 72),
 }
+# articulations corrigées à la main (px du dessin), quand la découpe tombe à côté du vrai pli
+PIVOT_FIX = {"upperArmL": (530.0, 792.0)}  # l'épaule noire : en haut de l'épaule, pas au milieu du bras
+# pièces dessinées après son visage (un bras levé passe devant lui)
+FRONT = {"upperArmL", "forearmL", "handL", "upperArmR", "forearmR", "handR"}
 CHAIN_CHILD = {"upperArmL": "forearmL", "forearmL": "handL", "upperArmR": "forearmR", "forearmR": "handR",
                "thighL": "shinL", "shinL": "footL", "thighR": "shinR", "shinR": "footR"}
 
@@ -79,6 +83,7 @@ def main():
     for bone, (_, parent, _) in BONES.items():
         if parent:
             pivot[bone] = joint_between(masks[parent][1], masks[bone][1])
+    pivot.update(PIVOT_FIX)
     hips = [pivot["thighL"], pivot["thighR"]]
     pivot["torso"] = ((hips[0][0] + hips[1][0]) / 2, (hips[0][1] + hips[1][1]) / 2)
     end["torso"] = pivot["head"]
@@ -120,6 +125,8 @@ def main():
     yy, xx = np.mgrid[0:H, 0:W]
     fx, fy, fd = face["x"], face["y"], face["dist"]
     front = hm & (xx >= fx - 1.6 * fd) & (xx <= fx - 0.15 * fd) & (yy >= fy - 1.5 * fd) & (yy <= fy + 0.5 * fd)
+    # …et la mèche sombre à bout rond, à gauche, qui descend devant l'épaule noire
+    front |= hm & (xx >= 420) & (xx <= 512) & (yy >= 520) & (yy <= 830)
 
     # --- les maillages
     parts = []
@@ -127,7 +134,7 @@ def main():
     if front.any():
         jobs.append(("hair", "meches-devant", "head", 100, ha, front, True))
     for bone, f, parent, z, a, m in [(j[0], j[1], j[2], j[3], j[4], j[5]) for j in sorted(jobs, key=lambda j: j[3])]:
-        is_front = f == "meches-devant"
+        is_front = f == "meches-devant" or bone in FRONT
         a = a.copy()
         a[~m, 3] = 0
         ys, xs = np.nonzero(m)
