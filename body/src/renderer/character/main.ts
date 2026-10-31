@@ -48,6 +48,7 @@ let settings: Settings;
 let phase: AssistantPhase = 'idle';
 let idleSec = 0;
 let quiet = false;
+let english = false; // sa langue (réglée dans le hub), pour ses petites bulles
 let night = false; // tard le soir : elle se fait douce (comme « ne pas déranger », sans les restrictions)
 let paused = false;
 let pointer: { x: number; y: number } | null = null;
@@ -110,7 +111,7 @@ const brain = new BrainLink(onBrain, (sentence) => showBubble(sentence));
 onFaceConfig((c) => setHairColor(c.hairColor));
 function onBrain(e: BrainEvent) {
   switch (e.type) {
-    case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; setFeeling(e.feeling); shareSettings(); break;
+    case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; setFeeling(e.feeling); english = e.langue !== 'fr'; shareSettings(); break;
     case 'feeling': setFeeling(e.emotion); break;
     case 'point': if (!dragging) { roamer.halt(15_000); void api.invoke('char:point', { x: e.x, y: e.y, w: e.w, h: e.h }).catch(() => undefined); } break;
     case 'glitch': if (settings?.character.glitchEffects && !night) model.glitchNow('slice', 0.9); break;
@@ -444,7 +445,7 @@ api.on('cue', (raw) => {
     case 'world': activeWin = c.activeWindow; workArea = c.work; perchSpots = c.perches ?? []; break;
     case 'brain':
       if (c.command === 'stop') brain.stop();
-      else void brain.toggleMic().then((on) => showBubble(on ? 'Je t\'écoute.' : 'Micro coupé.'));
+      else void brain.toggleMic().then((on) => showBubble(on ? (english ? "I'm listening." : 'Je t\'écoute.') : (english ? 'Mic off.' : 'Micro coupé.')));
       break;
   }
 });
