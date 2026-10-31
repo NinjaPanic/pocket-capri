@@ -248,6 +248,7 @@ class QuestionGate:
         # ses phrases des dernières réponses : un petit modèle recopie volontiers ce qu'il voit dans l'historique,
         # et une phrase anodine (« je suis assise sur ton bureau ») devenait un tic répété à chaque réponse
         self.already = [k for k in (_key(s) for t in already_said or [] for s in _SPLIT.split(t)) if len(k) > 14]
+        self.tics = tic_phrases(already_said or [])
         self.dropped = 0
         self.stopped = False  # elle s'est mise à radoter, ou elle a assez parlé : on arrête là
 
@@ -273,6 +274,9 @@ class QuestionGate:
         self.seen.add(key)
         if len(key) > 14 and any(_similar(key, old) for old in self.already):
             self.dropped += 1  # déjà dite récemment : on la saute, la suite de la réponse continue
+            return ""
+        if self.tics and has_tic(sentence, self.tics):
+            self.dropped += 1  # un de ses tics de mots (une réponse vidée est régénérée, jamais muette)
             return ""
         if self.max and self.sentences >= self.max:
             self.stopped = True
@@ -307,6 +311,48 @@ def repeated_sentences(replies: list[str]) -> set[str]:
             match = next((o for o in seen if _similar(k, o)), k)
             seen[match] = seen.get(match, 0) + 1
     return {k for k, n in seen.items() if n >= 2}
+
+
+_COMMON = set("""le la les un une des de du au aux et ou mais donc or ni car que qui quoi dont où ce cet cette ces mon ton son
+ma ta sa mes tes ses notre votre leur nos vos leurs je tu il elle on nous vous ils elles me te se moi toi lui eux y en ne pas plus
+moins très trop bien juste encore déjà toujours jamais rien tout tous toute toutes quand comme avec sans pour par dans sur sous
+chez entre vers est es suis sont était été être avoir ai as a avons avez ont fait faire dit dire va vais vas veux peux sais
+peut veut c'est j'ai t'as ça cela ceci alors oui non ok ah oh eh hein bon bah puis aussi même si quel quelle quels quelles
+the and you it is to of in that this for on with be are i my me your was what just so but not all can will like""".split())
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[\w'’-]+", text.lower().replace("’", "'"))]
+
+
+def tic_phrases(replies: list[str], min_replies: int = 3) -> list[str]:
+    """Les mots ou expressions distinctifs qu'elle a mis dans au moins `min_replies` réponses récentes : ses tics
+    (« glitch-musique », « NOVA », « faire exploser »). Pas les mots courants."""
+    df: dict[str, int] = {}
+    for reply in replies:
+        words = _words(reply)
+        grams: set[str] = set()
+        for n in (1, 2, 3):
+            for i in range(len(words) - n + 1):
+                g = words[i:i + n]
+                if all(w in _COMMON for w in g) or (n == 1 and (len(g[0]) < 7 or g[0] in _COMMON)):
+                    continue
+                if n > 1 and (g[0] in _COMMON or g[-1] in _COMMON):
+                    continue
+                grams.add(" ".join(g))
+        for g in grams:
+            df[g] = df.get(g, 0) + 1
+    tics = sorted((g for g, n in df.items() if n >= min_replies), key=lambda g: (-len(g.split()), -df[g]))
+    kept: list[str] = []
+    for g in tics:  # « glitch-musique » suffit, inutile de garder aussi « exploser glitch-musique »
+        if not any(g in k or k in g for k in kept):
+            kept.append(g)
+    return kept[:8]
+
+
+def has_tic(sentence: str, tics: list[str]) -> bool:
+    low = " ".join(_words(sentence))
+    return any(re.search(r"(?<![\w-])" + re.escape(t) + r"(?![\w-])", low) for t in tics)
 
 
 def strip_emoji(text: str) -> str:

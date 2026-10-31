@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from capri_brain import actions  # noqa: E402
-from capri_brain.persona import QuestionGate, repeated_sentences  # noqa: E402
+from capri_brain.persona import QuestionGate, has_tic, repeated_sentences, tic_phrases  # noqa: E402
 
 PAST = ["J’ai juste tapé “test” — c’est bon! Je suis assise sur ton bureau, j’écoute.",
         "Ah bon? J’ai juste tapé “test” — c’est bon! Je suis assise sur ton bureau, j’écoute.",
@@ -31,6 +31,21 @@ class RepetitionTest(unittest.TestCase):
     def test_short_words_are_not_tics(self):
         g = QuestionGate(True, already_said=["Ah bon ? Ok. Merci."])
         self.assertEqual((g.feed("Ah bon ? ") + g.flush()).strip(), "Ah bon ?")
+
+    def test_word_tics(self):
+        """Cas réel (batterie du 31/10) : « glitch-musique », « faire exploser » dans presque chaque réponse."""
+        replies = ["Un glitch-musique spécial pour les jours comme ça, je vais le faire exploser dans ton bureau.",
+                   "Je suis plus drôle parce que je peux faire exploser des glitch-musiques.",
+                   "Oui, j'ai encore le glitch-musique dans les oreilles.",
+                   "Chats, et j'ai un glitch-musique qui fait NOVA quand un chien aboie, ça va exploser."]
+        tics = tic_phrases(replies)
+        self.assertTrue(any("glitch-musique" in t for t in tics), tics)
+        self.assertFalse(any(t in ("dans", "pour", "chien") for t in tics), tics)
+        g = QuestionGate(True, already_said=replies)
+        out = g.feed("Bonne nuit. Je vais faire exploser un glitch-musique dans ton rêve. Dors bien. ") + g.flush()
+        self.assertNotIn("glitch", out)
+        self.assertIn("Dors bien", out)
+        self.assertFalse(has_tic("Rien à voir.", tics))
 
     def test_liked_songs_reach_the_planner(self):
         self.assertTrue(actions.HINT.search(actions.plain("Capri, tu peux aller dans mes titres likés ?")))

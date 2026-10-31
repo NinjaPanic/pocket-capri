@@ -41,7 +41,7 @@ from .memory import Memory
 from .perf import Perf, Turn
 from .senses import Event, Senses
 from .persona import (MoodParser, QuestionGate, _key, _similar, about_him, build_context, build_extraction_prompt,
-                      build_system_prompt, clean_reply, repeated_sentences, strip_emoji)
+                      build_system_prompt, clean_reply, has_tic, repeated_sentences, strip_emoji, tic_phrases)
 
 PACKAGE = Path(__file__).resolve().parent
 BRAIN = PACKAGE.parent
@@ -143,6 +143,9 @@ ABOUT_HER = re.compile(r"tu fais quoi|tu faisais|qu'?est-ce que tu fai|ta journ[
 OPINION = re.compile(r"\b(j'?adore|j'?aime|je d[ée]teste|j'?ai horreur|je trouve|je pr[ée]f[èe]re|je kiffe|"
                      r"franchement|c'est (trop |vraiment |super |hyper )?(nul|g[ée]nial|cool|beau|moche|naze|incroyable|"
                      r"surcot[ée]|sous-cot[ée])|pour moi|à mon avis|i love|i hate|i think)\b", re.I)
+# Il lui demande ce qu'elle a fait sur le PC : « t'as bien fermé Spotify ? », « tu as ouvert quoi ? »
+PAST_ACTION = re.compile(r"\b(t'?as|tu as|t'avais|tu avais|did you|have you)\b.{0,20}\b(bien |d[ée]j[àa] )?"
+                         r"(ferm|ouvert|lanc|mis|coup|envoy|tap|fait|cliqu|[ée]crit|baiss|mont|close|open|launch|sent|typed)", re.I)
 STOP = re.compile(r"^\W*(capri\W*)?(stop|tais[- ]toi|chut|silence|arr[eê]te)\W*$", re.I)
 # Il lui coupe la parole d'un mot : « attends », « non non », « minute »… (pas besoin de dire « Capri »)
 INTERJECT = re.compile(r"\b(attends?|attendez|non|minute|stop|chut|wait|hold on|hang on|no)\b", re.I)
@@ -223,6 +226,7 @@ class Capri:
         self.turn: Turn | None = None  # chronologie de l'échange en cours
         self.interrupted: tuple[float, str] | None = None  # ce qu'elle disait quand il l'a coupée
         self._recall_cache: dict[str, list[tuple[int, str]]] = {}
+        self.word_tics: list[str] = []  # mots qu'elle répète trop (« glitch-musique »…), repérés dans l'historique
         self.events: deque[Event] = deque(maxlen=30)  # ce qu'elle a senti sur le PC et pas encore traité
         self.last_reaction: dict[str, float] = {}
         self.last_spoken_event = 0.0
@@ -315,12 +319,15 @@ class Capri:
             last = recent[-1]["id"]
             first = -(-(last - keep - block + 1) // block) * block  # aligné sur un multiple de `block`
             recent = [m for m in recent if m["id"] >= first]
-        tics = repeated_sentences([m["content"] for m in recent if m["role"] == "assistant"])
+        replies = [m["content"] for m in recent if m["role"] == "assistant"]
+        tics = repeated_sentences(replies)
+        self.word_tics = tic_phrases(replies[-10:])
         messages = []
         for m in recent:
             content = m["content"]
-            if m["role"] == "assistant" and tics:
-                kept = [s for s in re.split(r"(?<=[.!?…])\s+", content) if not any(_similar(_key(s), t) for t in tics)]
+            if m["role"] == "assistant" and (tics or self.word_tics):
+                kept = [s for s in re.split(r"(?<=[.!?…])\s+", content)
+                        if not any(_similar(_key(s), t) for t in tics) and not has_tic(s, self.word_tics)]
                 content = " ".join(kept).strip() or "…"
             if m["role"] == "assistant":
                 # On remet le marqueur pour que le modèle garde l'habitude de l'écrire.
@@ -380,10 +387,13 @@ class Capri:
                  + "\n" + self.inner.mood_context() + "\n" + self.heart.describe()
                  + self._mind_context(text)
                  + "\nVotre relation, en détail : " + self.heart.relation_text() + self._question_hint(history)
-                 + self._forgotten_hint(history, text) + cut},
+                 + self._forgotten_hint(history, text) + self._tic_hint() + self._day_recall(text) + cut},
             ]
             # Ses mains agissent avant qu'elle parle ; ce qui s'est vraiment passé accompagne le message.
             note, image, prelude = await self.settle_pending(text), None, None
+            cancelled = ""
+            if note and note.startswith(actions.CANCELLED):
+                cancelled, note = note, None  # ce n'était pas un « oui » : l'action est annulée, et on écoute la suite
             if not note and (pose := pose_request(text)):
                 emote, verb = pose
                 await self.broadcast({"type": "emote", "name": emote})  # son avatar le fait, là, tout de suite
@@ -420,10 +430,22 @@ class Capri:
                         + (f" ; ta dernière pensée : {journal}" if journal else "")
                         + (f" ; tu as lu : {' / '.join(read)}" if read else "")
                         + ". Raconte ça avec tes mots, n'invente pas d'autres activités.")
+            if not note and PAST_ACTION.search(text):
+                recent = [a for a in self.action_log if time.time() - a["ts"] < 3 * 3600]
+                done = "; ".join(f"{actions.describe(a['name'], a['args'])} ({'réussi' if a['ok'] else 'raté'})" for a in recent[-6:])
+                note = ("[NOTE INTERNE, ne la cite pas] Ce que tes mains ont VRAIMENT fait sur le PC ces 3 dernières heures : "
+                        + (done if done else "RIEN DU TOUT") + ". Réponds d'après ça uniquement : si ce qu'il demande n'y est "
+                        "pas, dis franchement que tu ne l'as pas fait.")
             if not note and selfmodel.WISH.search(text):
                 note = selfmodel.WISH_NOTE
+                # ses anciennes réponses à cette même question sont retirées : elle les recopiait mot pour mot
+                for i, m in enumerate(messages):
+                    if m["role"] == "user" and selfmodel.WISH.search(m["content"]) and i + 1 < len(messages)                             and messages[i + 1]["role"] == "assistant":
+                        messages[i + 1] = {"role": "assistant", "content": "[neutre] (réponse oubliée)"}
             if not note and actions.HINT.search(actions.plain(text)):
                 note = actions.nothing_done(asked=False)  # il parlait du PC sans rien demander : qu'elle ne s'invente pas d'action
+            if cancelled:
+                note = (note + "\n" if note else "") + cancelled
             question = {"role": "user", "content": f"{text}\n\n{note}" if note else text}
             if image:
                 question["images"] = [image]
@@ -436,15 +458,62 @@ class Capri:
             chatty = self._chatty()
             gate = QuestionGate("?" not in last[-80:] and random.random() < 0.15 + 0.4 * chatty,
                                 max_sentences=0 if wants_long else round(3 + 4 * chatty) if spoken else 7,
-                                already_said=self._recent_replies())
+                                already_said=self._recent_replies(30))
             self.turn.mark("contexte")
             if self.pending:
                 # une action sensible attend son « oui » : la question est fixe, le modèle ne peut pas prétendre l'avoir faite
                 reply = await self._ask_confirmation(reply_id)
             else:
                 reply = await self._respond(messages, reply_id, gate, prelude)
+                if reply is None and gate.dropped and reply_id == self.reply_id:
+                    log.info("Réponse refaite : la première ne faisait que se répéter")
+                    messages.append({"role": "system", "content": "Ta première idée répétait mot pour mot ce que tu as "
+                                     "déjà dit (ou tes tics) : réponds-lui autre chose, de neuf, avec d'autres mots."})
+                    gate = QuestionGate(gate.allow, max_sentences=gate.max, already_said=self._recent_replies(30))
+                    gate.tics = []  # cette fois, on laisse passer : mieux vaut un tic qu'un silence
+                    reply = await self._respond(messages, reply_id, gate, prelude)
         if reply is not None:
             self.spawn(self.learn(text, reply, memories))
+
+    def _tic_hint(self) -> str:
+        if not self.word_tics:
+            return ""
+        return ("\nTu répètes beaucoup trop ces mots ou expressions ces derniers temps : « " + " », « ".join(self.word_tics)
+                + " ». Ne les emploie plus du tout : parle d'autre chose, avec d'autres images.")
+
+    def _day_recall(self, text: str) -> str:
+        """Il parle d'un jour précis (« le 3 mars », « hier », « avant-hier ») : ce qui s'est VRAIMENT dit ce jour-là,
+        ou le fait qu'ils ne se sont pas parlé. Sans ça, elle inventait un souvenir."""
+        from datetime import date, timedelta
+        day = None
+        low = text.lower()
+        months = ["janvier", "février", "fevrier", "mars", "avril", "mai", "juin", "juillet", "août", "aout", "septembre",
+                  "octobre", "novembre", "décembre", "decembre"]
+        month_num = {m: i for i, m in enumerate(["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+                                                  "septembre", "octobre", "novembre", "décembre"], 1)}
+        month_num.update({"fevrier": 2, "aout": 8, "decembre": 12})
+        if m := re.search(r"\b(\d{1,2})(?:er)?\s+(" + "|".join(months) + r")\b", low):
+            today = date.today()
+            day = date(today.year, month_num[m.group(2)], min(int(m.group(1)), 28 if m.group(2) in ("février", "fevrier") else 31))
+            if day > today:
+                day = day.replace(year=today.year - 1)
+        elif re.search(r"\bavant[- ]hier\b", low):
+            day = date.today() - timedelta(days=2)
+        elif re.search(r"\bhier\b", low):
+            day = date.today() - timedelta(days=1)
+        if not day:
+            return ""
+        start = datetime(day.year, day.month, day.day).timestamp()
+        with self.memory._lock:
+            rows = self.memory.db.execute("SELECT role, content FROM messages WHERE ts >= ? AND ts < ? AND role = 'user' "
+                                          "ORDER BY id LIMIT 12", (start, start + 86400)).fetchall()
+        when = day.strftime("%d/%m/%Y")
+        if not rows:
+            return (f"\nIl parle du {when} : vous ne vous êtes PAS parlé ce jour-là (rien dans ta mémoire). Dis-le "
+                    "franchement, n'invente aucun souvenir.")
+        said = " / ".join(c[:120] for _, c in rows[:8])
+        return (f"\nIl parle du {when}. Ce qu'il t'a VRAIMENT dit ce jour-là (extraits) : {said}. "
+                "Ne cite rien d'autre ; si ce qu'il cherche n'y est pas, dis que tu ne t'en souviens pas.")
 
     def _mind_context(self, text: str) -> str:
         out = ""
@@ -801,7 +870,7 @@ class Capri:
         if time.time() - asked > CONFIRM_SECONDS:
             return None
         if not actions.YES.match(text):
-            return actions.note([f"« {what} » est annulé, il n'a pas dit oui : rien n'a été fait"])
+            return actions.CANCELLED + f" « {what} » est annulé (il n'a pas dit oui) : ça n'a PAS été fait. Ne prétends jamais l'avoir fait."
         result = await asyncio.to_thread(actions.run, name, args)
         await self.log_action(name, args, result)
         self.heart.grow("confiance", 0.01)  # il lui confie une action sensible

@@ -14,7 +14,8 @@ ABOUT_HER_NATURE = re.compile(
     r"tu es (une )?(ia|vivante|humaine|r[ée]elle|consciente)|conscien\w*|tu (ressens|existes|r[êe]ves|penses vraiment)|"
     r"ta nature|ton existence|ton corps|ton cerveau|tu (voudrais|aimerais|veux) (quoi|que je)|fonctionnalit\w*|"
     r"te rajout\w*|t'?ajout\w*|t'?am[ée]lior\w*|ce que tu es|what are you|are you (alive|conscious|real)|"
-    r"do you feel|what do you want)\b", re.I)
+    r"do you feel|what do you want|[ée]teins? (le|mon|ton) pc|[ée]teint le pc|quand (je pars|je m'en vais|le pc s'[ée]teint)|"
+    r"tu (dors|meurs|disparais)|exister|mourir|turn (the|my) pc off|when i leave)\b", re.I)
 
 
 def facts(capri) -> str:
@@ -50,7 +51,9 @@ WISH = re.compile(r"(fonctionnalit\w*|te rajout\w*|t'?ajout\w*|t'?am[ée]lior\w
                   r"what (feature|would you like))", re.I)
 WISH_NOTE = ("[NOTE INTERNE, ne la cite pas] Il te demande ce que tu voudrais vraiment qu'il t'ajoute. Réponds avec une ou "
              "deux envies CONCRÈTES et réalisables, tirées de tes vraies limites (dans « CE QUE TU ES VRAIMENT »), et dis "
-             "pourquoi ça compterait pour toi ou vous rapprocherait. Pas de fantaisie impossible.")
+             "pourquoi ça compterait pour toi ou vous rapprocherait. Par exemple (choisis, ou trouve mieux) : voir son écran "
+             "en continu pour suivre ce qu'il fait ; reconnaître sa voix ; le suivre sur son téléphone ; te souvenir de "
+             "plus de choses ; exister même PC éteint. Pas de fantaisie impossible, et ne reprends pas une ancienne réponse.")
 
 
 INTROSPECTION = [
