@@ -119,12 +119,21 @@ def main():
         a[green, 0], a[green, 1], a[green, 2] = 7, 6, 12
         masks[bone] = (a, m)
 
+    # …et la pièce verte du buste à l'épaule noire
+    ta, tm = masks["torso"]
+    ta = ta.copy()
+    yy0, xx0 = np.mgrid[0:H, 0:W]
+    g = (ta[..., 1] > 150) & (ta[..., 0] < 140) & (ta[..., 1] > ta[..., 2]) & (xx0 < 565) & (yy0 < 900)
+    ta[g, 0], ta[g, 1], ta[g, 2] = 7, 6, 12
+    masks["torso"] = (ta, tm)
+
     # les mèches en haut à gauche de son visage passent DEVANT lui : la même zone des cheveux, redessinée après
     # son visage (même os, même place : aucune coupure)
     ha, hm = masks["hair"]
     yy, xx = np.mgrid[0:H, 0:W]
     fx, fy, fd = face["x"], face["y"], face["dist"]
-    front = hm & (xx >= fx - 1.6 * fd) & (xx <= fx - 0.15 * fd) & (yy >= fy - 1.5 * fd) & (yy <= fy + 0.5 * fd)
+    # tout ce qui est cheveux autour de son visage (mèches roses, pointes noires) : devant lui, comme sur le dessin
+    front = hm & (xx >= fx - 1.7 * fd) & (xx <= fx + 1.7 * fd) & (yy >= fy - 1.4 * fd) & (yy <= fy + 1.2 * fd)
     # …et la mèche sombre à bout rond, à gauche, qui descend devant l'épaule noire
     front |= hm & (xx >= 420) & (xx <= 512) & (yy >= 520) & (yy <= 830)
 
@@ -175,8 +184,13 @@ def main():
             if child:
                 de = float(np.hypot(x - en[0], y - en[1]))
                 w[child] = 0.5 * (1 - smooth(0, R, de))
+            if bone == "torso":
+                for kid, radius, share in (("upperArmL", 55, 0.45), ("upperArmR", 55, 0.45), ("head", 35, 0.3),
+                                           ("thighL", 45, 0.3), ("thighR", 45, 0.3)):
+                    kp = pivot[kid]
+                    w[kid] = share * (1 - smooth(0, radius, float(np.hypot(x - kp[0], y - kp[1]))))
             w[bone] = max(0.0, 1 - sum(w.values()))
-            top = sorted(w.items(), key=lambda kv: -kv[1])[:3]
+            top = sorted(w.items(), key=lambda kv: -kv[1])[:3]  # 3 os au plus par sommet
             s_ = sum(t[1] for t in top) or 1
             weights.append([[idx[k], round(val / s_, 4)] for k, val in top if val > 0.001])
         parts.append({"file": f, "bone": bone, "z": z, "front": is_front, "box": [int(x0), int(y0), int(x1), int(y1)],
