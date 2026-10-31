@@ -56,7 +56,8 @@ class InnerLife:
         self.state = {
             "activity": "rever", "since": time.time(), "feeling": "tranquille",
             "affection": 30.0, "journal": [], "followups": [], "read": [],
-            "last_talk": 0.0, "initiatives_ignored": 0,
+            "last_talk": 0.0, "initiatives_ignored": 0, "moments": [],
+            "duration": 1200.0, "interrupted": None, "projects": [],
         }
         try:
             self.state.update(json.loads(path.read_text(encoding="utf-8")))
@@ -70,17 +71,78 @@ class InnerLife:
     # --- ce qu'elle fait ---------------------------------------------------
 
     def pick_activity(self) -> str:
+        """Une nouvelle activité, pour 10 à 40 minutes. Si tu l'avais interrompue au milieu d'une autre, elle la
+        reprend d'abord (avec le temps qu'il lui restait)."""
+        held = self.state.get("interrupted")
+        if held and time.time() - held["at"] < 3 * 3600:
+            self.state["interrupted"] = None
+            self.state["activity"], self.state["since"] = held["activity"], time.time() - held["done"]
+            self.state["duration"] = held["duration"]
+            self.save()
+            return held["activity"]
         hour = datetime.now().hour
         fits = [k for k, (_, _, hours) in ACTIVITIES.items() if hour in hours and k != self.state["activity"]]
         choice = random.choice(fits or list(ACTIVITIES))
         self.state["activity"], self.state["since"] = choice, time.time()
+        self.state["duration"] = random.uniform(10, 40) * 60
         self.save()
         return choice
+
+    def progress(self) -> float:
+        return min(1.0, (time.time() - self.state["since"]) / max(60.0, self.state.get("duration", 1200)))
+
+    def activity_done(self) -> bool:
+        return self.progress() >= 1.0
+
+    def interrupt_activity(self) -> None:
+        """Il lui parle au milieu de son activité : elle la met de côté (pas finie) pour la reprendre plus tard."""
+        if 0.1 < self.progress() < 0.9 and not self.state.get("interrupted"):
+            self.state["interrupted"] = {"activity": self.state["activity"], "done": time.time() - self.state["since"],
+                                         "duration": self.state.get("duration", 1200), "at": time.time()}
+            self.save()
+
+    # --- ses projets à elle (plusieurs jours) ------------------------------------------
+
+    def active_projects(self) -> list[dict]:
+        return [p for p in self.state.get("projects", []) if p["status"] == "en cours"]
+
+    def add_project(self, title: str, goal: str, steps: list[str], origin: str) -> dict:
+        self.state.setdefault("projects", [])
+        project = {"id": len(self.state["projects"]) + 1, "title": title[:80], "goal": goal[:200],
+                   "steps": [s[:120] for s in steps[:6]], "step": 0, "notes": [], "origin": origin[:120],
+                   "started": time.time(), "last": time.time(), "status": "en cours", "result": "", "shared": False}
+        self.state["projects"].append(project)
+        self.save()
+        return project
+
+    def advance_project(self, project: dict, note: str, result: str = "") -> None:
+        project["notes"] = (project["notes"] + [{"ts": time.time(), "step": project["step"], "text": note[:400]}])[-20:]
+        project["step"] += 1
+        project["last"] = time.time()
+        if project["step"] >= len(project["steps"]):
+            project["status"], project["result"] = "terminé", (result or note)[:600]
+            self.moment("projet", f"Tu as terminé ton projet « {project['title']} »")
+        self.save()
+
+    def unshared_project(self) -> dict | None:
+        done = [p for p in self.state.get("projects", []) if p["status"] == "terminé" and not p.get("shared")]
+        if done:
+            done[-1]["shared"] = True
+            self.save()
+            return done[-1]
+        return None
 
     @property
     def activity(self) -> tuple[str, str]:
         what, pose, _ = ACTIVITIES.get(self.state["activity"], ACTIVITIES["rever"])
         return what, pose
+
+    def moment(self, kind: str, text: str) -> None:
+        """Un moment de votre histoire (partie de jeu, retour après une longue absence, chose apprise, tâche réussie).
+        Seulement des faits réels, jamais inventés."""
+        self.state.setdefault("moments", [])
+        self.state["moments"] = (self.state["moments"] + [{"ts": time.time(), "kind": kind, "text": text[:200]}])[-300:]
+        self.save()
 
     def note(self, text: str) -> None:
         self.state["journal"] = (self.state["journal"] + [{"ts": time.time(), "text": text[:300]}])[-60:]
@@ -90,6 +152,7 @@ class InnerLife:
 
     def talked(self) -> None:
         """Il lui a parlé : elle s'attache un peu plus, et ses dernières prises de parole n'ont pas été ignorées."""
+        self.interrupt_activity()
         self.state["affection"] = min(100.0, self.state["affection"] + 0.4)
         self.state["last_talk"] = time.time()
         self.state["initiatives_ignored"] = 0
@@ -178,18 +241,23 @@ class InnerLife:
     def context(self) -> str:
         what, _ = self.activity
         minutes = int((time.time() - self.state["since"]) // 60)
-        lines = [f"Ce que tu faisais de ton côté : {what} (depuis {minutes} min).",
+        lines = [f"Ce que tu faisais de ton côté : {what} (depuis {minutes} min, fait à {round(self.progress() * 100)} %).",
                  f"Ton ressenti du moment : {self.state['feeling']}.",
                  f"Ta relation avec lui : {self.bond()}"]
         if self.state["journal"]:
             lines.append(f"Ta dernière pensée : {self.state['journal'][-1]['text']}")
+        for p in self.active_projects()[:2]:
+            lines.append(f"Ton projet en cours : « {p['title']} » ({p['step']}/{len(p['steps'])} étapes) — {p['goal']}")
         return "\n".join(lines)
 
     def summary(self, lang: str = "fr") -> dict:
         what, _ = self.activity
         if lang == "en":
             what = ACTIVITY_EN.get(self.state["activity"], what)
-        return {"activity": what, "feeling": self.state["feeling"], "affection": round(self.state["affection"]),
+        return {"activity": what, "progress": round(self.progress() * 100), "feeling": self.state["feeling"],
+                "affection": round(self.state["affection"]),
+                "projects": [{k: p[k] for k in ("title", "goal", "steps", "step", "status", "result", "notes", "last")}
+                             for p in self.state.get("projects", [])[-6:]][::-1],
                 "journal": self.state["journal"][-12:][::-1],
                 "followups": [{"topic": f["topic"], "due": f["due"]} for f in self.state["followups"]],
                 "read": [{"title": r["title"], "ts": r["ts"]} for r in self.state["read"][-5:]][::-1]}

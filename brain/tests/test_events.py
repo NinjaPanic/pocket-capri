@@ -37,6 +37,8 @@ def fake_capri():
     c.sent, c.said = [], []
     from capri_brain.heart import Heart
     c.heart = Heart(Path(tempfile.mkdtemp(prefix="capri-test-")) / "coeur.json")
+    from capri_brain.inner import InnerLife
+    c.inner = InnerLife(Path(tempfile.mkdtemp(prefix="capri-test-")) / "vie.json")
 
     async def broadcast(msg, speakers_only=False):
         c.sent.append(msg)
@@ -107,6 +109,7 @@ class EventEngineTest(unittest.TestCase):
         self.assertIn({"type": "discreet", "on": False}, c.sent)
         self.assertEqual(len(c.said), 1, "après une vraie partie elle demande comment c'était")
         self.assertIn("drivetogether", c.said[0])
+        self.assertEqual(c.inner.state["moments"][-1]["kind"], "jeu", "la partie entre dans votre histoire")
 
     def test_spoken_reactions_are_spaced(self):
         c = fake_capri()

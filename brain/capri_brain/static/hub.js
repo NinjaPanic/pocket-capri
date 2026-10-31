@@ -179,7 +179,22 @@ function renderMemories() {
     const li = el("li");
     const x = el("button", "x", "oublier");
     x.onclick = async () => { await fetch(`/api/memories/${m.id}`, { method: "DELETE" }); memories = memories.filter((o) => o.id !== m.id); renderMemories(); };
-    li.append(el("span", "txt", m.content), el("span", "meta", time(m.ts)), x);
+    // il peut corriger un souvenir : un clic sur le texte, Entrée pour garder, Échap pour annuler
+    const txt = el("span", "txt", m.content);
+    txt.title = LANG === "en" ? "Click to edit" : "Clique pour corriger";
+    txt.onclick = () => {
+      if (li.querySelector("input")) return;
+      const inp = el("input"); inp.value = m.content; inp.className = "memEdit";
+      inp.onkeydown = async (e) => {
+        if (e.key === "Escape") { renderMemories(); return; }
+        if (e.key !== "Enter" || !inp.value.trim()) return;
+        const r = await fetch(`/api/memories/${m.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: inp.value.trim() }) });
+        if (r.ok) m.content = inp.value.trim();
+        renderMemories();
+      };
+      txt.replaceWith(inp); inp.focus();
+    };
+    li.append(txt, el("span", "meta", time(m.ts)), x);
     list.append(li);
   }
 }
@@ -462,6 +477,8 @@ async function voiceCard() {
 loaders.etat = async () => {
   const s = await api("/api/state");
   if (s.inner) renderInner(s.inner, s.coeur);
+  renderReminders(await api("/api/rappels"));
+  renderTimeline(await api("/api/chronologie"));
   const stats = $("stats");
   stats.replaceChildren();
   for (const [k, v] of [["Cerveau", s.status], ["Modèle", s.model], ["Voix", s.voice], ["Humeur", s.mood], ["Souvenirs", s.memories],
@@ -472,12 +489,50 @@ loaders.etat = async () => {
 const EMO = { joie: "Joie", curiosite: "Curiosité", ennui: "Ennui", fatigue: "Fatigue", irritation: "Irritation", sarcasme: "Sarcasme",
   surprise: "Surprise", fierte: "Fierté", jalousie: "Jalousie", tendresse: "Tendresse", mefiance: "Méfiance", excitation: "Excitation", tristesse: "Tristesse" };
 const REL = { familiarite: "Familiarité", confiance: "Confiance", complicite: "Complicité", habitude: "Habitude", taquinerie: "Taquinerie", jalousie: "Jalousie" };
+/** Votre histoire : du plus récent au plus ancien, chaque moment avec son type. */
+const KINDS = { debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
+function renderTimeline(items) {
+  const card = el("div", "card timeline");
+  card.append(el("h2", null, "Votre histoire"), el("p", "sub", "Ce qui s'est vraiment passé entre vous. Les pensées sont les siennes, pas des faits."));
+  const ul = el("ul", "list");
+  if (!items.length) ul.append(el("li", "empty", "Rien pour l'instant."));
+  for (const it of items.slice(0, 80)) {
+    const l = el("li");
+    l.append(el("span", "meta kind-" + it.kind, KINDS[it.kind] ?? it.kind), el("span", "txt", it.text), el("span", "meta", time(it.ts)));
+    ul.append(l);
+  }
+  card.append(ul);
+  $("innerCards").append(card);
+}
+
+/** Ses rappels : ceux qui arrivent (reporter de 10 min, annuler) et ceux qui ont déjà sonné. */
+function renderReminders(r) {
+  const card = el("div", "card");
+  card.append(el("h2", null, "Rappels"), el("p", "sub", "Demande-les-lui à voix haute : « rappelle-moi dans 20 minutes de… »."));
+  const ul = el("ul", "list");
+  if (!r.prevus.length) ul.append(el("li", "empty", "Aucun rappel prévu."));
+  for (const it of r.prevus) {
+    const l = el("li");
+    const when = time(it.due) + (it.repetition !== "aucune" ? ` · ${it.repetition}` : "");
+    const later = el("button", "btn", "+10 min"), drop = el("button", "btn", "Annuler");
+    later.onclick = async () => { await fetch(`/api/rappels/${it.id}/reporter?minutes=10`, { method: "POST" }); loaders.etat(); };
+    drop.onclick = async () => { await fetch(`/api/rappels/${it.id}`, { method: "DELETE" }); loaders.etat(); };
+    l.append(el("span", "txt", it.texte), el("span", "meta", when), later, drop);
+    ul.append(l);
+  }
+  card.append(ul, el("h2", null, "Déjà sonnés"));
+  const old = el("ul", "list");
+  if (!r.historique.length) old.append(el("li", "empty", "Rien pour l'instant."));
+  for (const h of r.historique.slice(0, 10)) { const l = el("li"); l.append(el("span", "txt", h.texte), el("span", "meta", time(h.sonne))); old.append(l); }
+  card.append(old);
+  $("innerCards").append(card);
+}
 function renderInner(i, coeur) {
   const box = $("innerCards");
   box.replaceChildren();
   const now = el("div", "card");
   now.append(el("h2", null, "Sa vie à elle"), el("p", "sub", "Ce qu'elle fait quand tu ne lui parles pas."));
-  for (const [k, v] of [["En ce moment", i.activity], ["Ressenti", i.feeling]]) {
+  for (const [k, v] of [["En ce moment", `${i.activity}${i.progress != null ? ` · ${i.progress} %` : ""}`], ["Ressenti", i.feeling]]) {
     const r = el("div", "row"); r.append(el("label", null, k), el("span", null, v)); now.append(r);
   }
   const bond = el("div", "row"), bar = el("div", "bond");
@@ -516,6 +571,11 @@ function renderInner(i, coeur) {
   list("Son journal", i.journal, "Pas encore de pensées notées.", (j) => li(j.text, time(j.ts)));
   list("Ce qu'elle veut te redemander", i.followups, "Rien pour l'instant.", (f) => li(f.topic, "vers " + time(f.due)));
   list("Ce qu'elle a lu", i.read, "Rien lu pour l'instant.", (r) => li(r.title, time(r.ts)));
+  list("Ses projets", i.projects ?? [], "Pas encore de projet.", (p) => {
+    const l = li(`${p.title} — ${p.status === "terminé" ? p.result : p.goal}`, `${p.status} · ${p.step}/${p.steps.length}`);
+    if (p.notes.length) l.title = p.notes.map((n) => n.text).join("\n\n");
+    return l;
+  });
 }
 $("stateRefresh").onclick = () => loaders.etat();
 

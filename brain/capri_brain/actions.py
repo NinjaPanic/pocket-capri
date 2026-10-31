@@ -438,7 +438,7 @@ HINT = re.compile(r"\b(ouvr|lanc|demarr|ferm|quitt|mont|baiss|augment|diminu|cou
                   r"met|mets|joue|stop|annul|spotify|discord|steam|navigateur|programme|appli|jeu|derang|tranquille|"
                   r"silence|calme|message|ecrit|reparl|regard|vois|voir|vu|lis|lire|ecran|fenetre|onglet|clique|tape|"
                   r"ecris|ecrire|repond|envoi|video|page|va sur|trouve|fais|montre|affiche|quoi sur|mute|sourdine|deafen|onglet|reduis|agrandis|"
-                  r"repos|tais|chut|reviens|reparle|"
+                  r"repos|tais|chut|reviens|reparle|rappel|minuteur|alarme|reveille|remind|timer|alarm|"
                   # « réessaie », « rouvre », « ça a pas marché » : refaire ce qui a raté
                   r"reessa|recommenc|refai|retent|rouvr|pas marche|bloc.?notes?|notepad|ecriv|"
                   # en anglais
@@ -457,7 +457,7 @@ Méthode :
 - Un texte à écrire de sa part : écris-le comme Capri, une jeune femme, à la première personne, en le tutoyant, avec son style taquin et attaché (jamais « (e) » ni « (ne) »), dans la langue de l'utilisateur. Tape-le en une seule fois, puis ne le retape pas.
 - Quand c'est fait (ou impossible), n'appelle plus d'outil et réponds seulement : fini.
 Sinon (simple discussion, question sur un sujet, avis), n'appelle aucun outil et réponds seulement : aucune.
-Exemples : « ouvre Spotify » → ouvrir_programme(nom="Spotify") ; « mets le son à 30 » → volume(action="regler", niveau=30) ; « chanson suivante » → musique(action="suivant") ; « cherche des crêpes sur YouTube » → rechercher_web(recherche="crêpes", site="youtube") ; « lance la première vidéo » → lire_fenetre(nom="YouTube") puis cliquer(element=le numéro du premier titre de vidéo) ; « j'ai des messages sur Discord ? » → lire_fenetre(nom="Discord") ; « qu'est-ce qu'il y a sur mon écran ? » → regarder_ecran() ; « mon PC rame » → etat_du_pc() ; « laisse-moi tranquille une heure » → ne_pas_deranger(minutes=60) ; « Capri, temps de repos » ou « pause Capri » → ne_pas_deranger(minutes=120) ; « c'est bon tu peux revenir » → ne_pas_deranger(minutes=0) ; « on m'a écrit quoi sur Discord ? » → lire_fenetre(nom="Discord") ; « mute-moi sur Discord » → controler_appli(appli="discord", action="micro") ; « mets-moi en sourdine » → controler_appli(appli="discord", action="sourdine") ; « like cette musique » → controler_appli(appli="spotify", action="j_aime") ; « ferme cet onglet » → controler_appli(appli="navigateur", action="fermer_onglet") ; « réduis Spotify » → controler_appli(appli="spotify", action="reduire") ; « réessaie », « refais-le », « try again », « ça a pas marché » → refais la dernière demande d'action de l'utilisateur, même si Capri prétend l'avoir déjà faite ; « open notepad and write hi » → ouvrir_programme(nom="bloc-notes") puis ecrire(texte="hi") ; « turn the volume down » → volume(action="baisser") ; « tu aimes la musique ? » → aucune ; « do you like music? » → aucune."""
+Exemples : « ouvre Spotify » → ouvrir_programme(nom="Spotify") ; « mets le son à 30 » → volume(action="regler", niveau=30) ; « chanson suivante » → musique(action="suivant") ; « cherche des crêpes sur YouTube » → rechercher_web(recherche="crêpes", site="youtube") ; « lance la première vidéo » → lire_fenetre(nom="YouTube") puis cliquer(element=le numéro du premier titre de vidéo) ; « j'ai des messages sur Discord ? » → lire_fenetre(nom="Discord") ; « qu'est-ce qu'il y a sur mon écran ? » → regarder_ecran() ; « mon PC rame » → etat_du_pc() ; « laisse-moi tranquille une heure » → ne_pas_deranger(minutes=60) ; « Capri, temps de repos » ou « pause Capri » → ne_pas_deranger(minutes=120) ; « c'est bon tu peux revenir » → ne_pas_deranger(minutes=0) ; « on m'a écrit quoi sur Discord ? » → lire_fenetre(nom="Discord") ; « mute-moi sur Discord » → controler_appli(appli="discord", action="micro") ; « mets-moi en sourdine » → controler_appli(appli="discord", action="sourdine") ; « like cette musique » → controler_appli(appli="spotify", action="j_aime") ; « ferme cet onglet » → controler_appli(appli="navigateur", action="fermer_onglet") ; « réduis Spotify » → controler_appli(appli="spotify", action="reduire") ; « réessaie », « refais-le », « try again », « ça a pas marché » → refais la dernière demande d'action de l'utilisateur, même si Capri prétend l'avoir déjà faite ; « open notepad and write hi » → ouvrir_programme(nom="bloc-notes") puis ecrire(texte="hi") ; « turn the volume down » → volume(action="baisser") ; « rappelle-moi d'appeler maman dans 20 minutes » → creer_rappel(texte="appeler maman", dans_minutes=20) ; « rappelle-moi tous les jours à 9 h de prendre mes médicaments » → creer_rappel(texte="prendre tes médicaments", heure="09:00", repetition="quotidienne") ; « redis-le-moi dans 10 minutes » (juste après un rappel) → reporter_rappel(minutes=10) ; « annule le rappel pour maman » → annuler_rappel(texte="maman") ; « j'ai quoi comme rappels ? » → lister_rappels() ; « tu aimes la musique ? » → aucune ; « do you like music? » → aucune."""
 
 
 def note(results: list[str]) -> str:
@@ -599,6 +599,24 @@ HANDS = {"activer_fenetre", "cliquer", "cliquer_position", "ecrire", "touches", 
 # --- Actions prêtes sur les applis (Discord, Spotify, navigateur) et sur les fenêtres -------
 
 from . import apps  # noqa: E402
+
+# --- Rappels -----------------------------------------------------------------------------
+
+from . import reminders  # noqa: E402
+
+TOOLS.update({
+    "creer_rappel": Tool(reminders.creer, "Programme un rappel : elle le lui dira au bon moment. Donne SOIT dans_minutes "
+                         "(« dans 20 minutes »), SOIT heure au format HH:MM (24 h), éventuellement jour (« demain » ou AAAA-MM-JJ).",
+                         {"texte": _s("Ce qu'il faut lui rappeler, court"), "dans_minutes": _int("Dans combien de minutes"),
+                          "heure": _s("Heure HH:MM"), "jour": _s("« demain » ou une date AAAA-MM-JJ (vide = la prochaine fois que cette heure arrive)"),
+                          "repetition": _s("Répétition", reminders.REPEATS), "discret": _bool("Juste une bulle, sans le dire à voix haute")},
+                         ["texte"]),
+    "lister_rappels": Tool(reminders.lister, "Liste les rappels prévus.", {}, []),
+    "annuler_rappel": Tool(reminders.annuler, "Annule un rappel prévu (d'après son texte ou son numéro).",
+                           {"texte": _s("Mots du rappel à annuler"), "numero": _int("Numéro du rappel")}, []),
+    "reporter_rappel": Tool(reminders.reporter, "Reporte le rappel qui vient de sonner (« rappelle-moi dans 10 minutes »).",
+                            {"minutes": _int("Dans combien de minutes"), "texte": _s("Mots du rappel (vide = le dernier)")}, ["minutes"]),
+})
 
 TOOLS["controler_appli"] = Tool(
     apps.control,

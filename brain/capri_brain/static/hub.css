@@ -171,3 +171,12 @@ select.field option { background: var(--panel); }
 .flag svg { border-radius: 2px; box-shadow: 0 0 0 1px #ffffff22; }
 .flag:hover { border-color: var(--green); color: var(--text); }
 .flag.on { border-color: var(--green); color: var(--green); background: var(--green-dim); box-shadow: 0 0 10px var(--green-dim); }
+
+/* chronologie : badges néon par type de moment, souvenir modifiable */
+.timeline .meta[class*="kind-"] { min-width: 6.5em; font-family: monospace; letter-spacing: .04em; }
+.kind-debut, .kind-tache { color: #22f27a; }
+.kind-souvenir, .kind-retour { color: #1d6cff; }
+.kind-jeu { color: #f2154c; }
+.kind-pensee, .kind-lecture { color: #b48cff; font-style: italic; }
+.memEdit { flex: 1; background: transparent; color: inherit; border: 1px solid #22f27a; padding: 4px 6px; font: inherit; }
+#memList .txt { cursor: text; }

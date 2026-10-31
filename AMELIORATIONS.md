@@ -130,6 +130,28 @@ vient bien de la chaîne vocale, pas de conditions plus favorables.
   Ava (actuelle) **2,85 s**, 1 échec ; Vivienne 3,26 s, 5 échecs. La reprise lente après une interruption (~4,5 s)
   vient de la même cause : la voix. Changer de voix est ton choix (hub › Réglages › Voix).
 
+### 2.4 Lot 3 — rappels, souvenirs modifiables, chronologie, activités et projets
+
+* **Rappels (F4)** — `brain/capri_brain/reminders.py`, `data/rappels.json`. Demande-les à voix haute ou par
+  écrit : « rappelle-moi dans 20 minutes de… », « tous les jours à 9 h… », « les jours de semaine… »,
+  « redis-le-moi dans 10 minutes », « annule le rappel pour… », « j'ai quoi comme rappels ? ». À l'heure dite :
+  geste et bulle tout de suite, puis elle le dit dès qu'elle ne parle pas déjà. En « ne pas déranger » ou pour un
+  rappel discret, seulement la bulle. Un rappel quotidien manqué (PC éteint) ne sonne pas en rafale. Le hub
+  (onglet État) liste ceux qui arrivent (+10 min, Annuler) et ceux qui ont sonné. **Vérifié de bout en bout** sur
+  un cerveau de test : demandé en français, il a sonné 60 s plus tard, d'abord en bulle puis à voix haute.
+* **Souvenirs modifiables (B4)** : dans le hub, onglet Mémoire, clique sur un souvenir pour le corriger (Entrée
+  pour garder). Le texte que tu corriges remplace l'ancien, et elle le retrouve avec la nouvelle formulation.
+* **Votre histoire (B5)** : `GET /api/chronologie` et une carte dans l'onglet État. On y trouve votre première
+  conversation, ce qu'elle a appris de toi, tes parties de jeu (10 min ou plus), tes retours après de longues
+  absences, ce qu'elle a fait pour toi après ta confirmation, ses projets terminés, ses lectures et ses pensées.
+  Ses pensées y sont marquées comme les siennes, pas comme des faits.
+* **Activités avec durée (C1)** : chacune dure de 10 à 40 min, avec une progression visible dans le hub. Si tu
+  lui parles au milieu, elle met l'activité de côté et la reprend plus tard, là où elle en était.
+* **Projets personnels (C2)** : au plus deux à la fois, inspirés de ce que tu lui as confié ou de ce qu'elle a
+  lu. Chacun a un objectif, des étapes, ses notes et un résultat. Elle avance d'une étape de temps en temps, en
+  arrière-plan (sans jamais passer avant votre conversation), et vient te raconter le résultat. Elle ne fait que
+  réfléchir et écrire, et il lui est interdit de prétendre avoir fait autre chose.
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)

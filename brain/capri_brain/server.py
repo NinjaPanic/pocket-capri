@@ -30,7 +30,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import actions, eyes, hands, life
+from . import actions, eyes, hands, life, reminders
 from .heart import Heart
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
@@ -191,6 +191,8 @@ class Capri:
         self.avatar: dict | None = None  # réglages du corps, envoyés par l'avatar quand il se connecte
         self.inner = InnerLife(DATA / "vie_interieure.json")  # ce qu'elle vit de son côté
         self.heart = Heart(DATA / "coeur.json", cfg.setdefault("personnalite", {}))  # ses émotions, votre relation
+        reminders.PATH = DATA / "rappels.json"
+        self.ringing: dict[int, float] = {}  # rappels en train de sonner (id → depuis quand)
         self.shown_feeling = ""
         self.llm = LLM(cfg)
         self.memory = Memory(DATA / "capri.db")
@@ -746,6 +748,8 @@ class Capri:
         result = await asyncio.to_thread(actions.run, name, args)
         await self.log_action(name, args, result)
         self.heart.grow("confiance", 0.01)  # il lui confie une action sensible
+        if not result.startswith(("ÉCHEC", "REFUSÉ")):
+            self.inner.moment("tache", f"Tu as fait pour lui : {what}")
         return actions.note([f"il a confirmé, donc tu l'as fait : {result}"])
 
     async def speak(self, queue: asyncio.Queue, reply_id: int, turn: Turn | None = None) -> None:
@@ -944,6 +948,8 @@ class Capri:
         for (fact, replaces), vector in zip(facts, vectors):
             result = self.memory.add_memory(fact, vector, replaces)
             log.info("Souvenir %s : %s", "mis à jour" if result == "updated" else "ajouté", fact)
+            if result == "added":
+                self.inner.moment("souvenir", about_him(fact, self.name))
             await self.broadcast({"type": "memory", "text": fact, "result": result})
 
 
@@ -968,11 +974,12 @@ class Capri:
                 if senses and now >= next_sense:
                     next_sense = now + 10
                     self.events.extend(await asyncio.to_thread(senses.poll, life.idle_seconds()))
+                await self.ring_reminders()
                 await self.react_to_events()
                 await self.update_night()
                 await self.show_feeling()
                 # elle vit sa vie même quand personne ne la regarde
-                if now >= next_life:
+                if now >= next_life or (self.inner.activity_done() and now >= next_life - 8 * 60):
                     next_life = now + random.uniform(10, 25) * 60
                     self.spawn(self.live_a_bit())
                 if not self.clients:
@@ -1000,6 +1007,8 @@ class Capri:
                     # son modèle a pu être déchargé pendant ton absence : rechargé avant ta première phrase
                     self.spawn(self.llm.ensure_loaded(self.system))
                     self.heart.feel("retour", min(1.5, 0.5 + minutes / 120))
+                    if minutes >= 360:
+                        self.inner.moment("retour", f"Il est revenu après {minutes // 60} heures d'absence")
                     if cfg.get("accueil", True) and not quiet and not busy:
                         await self.initiate(
                             f"Il revient devant son PC après environ {minutes} minutes d'absence. Tu le remarques : "
@@ -1046,6 +1055,8 @@ class Capri:
                     self.spawn(self._free_gpu_for_game())
             elif e.kind == "jeu_ferme":
                 await self.broadcast({"type": "discreet", "on": False})
+                if e.data.get("minutes", 0) >= 10:
+                    self.inner.moment("jeu", f"Il a joué à {e.data.get('jeu')} pendant {e.data.get('minutes')} minutes")
                 self.spawn(self.llm.ensure_loaded(self.system))
             if actions.quiet():
                 continue  # « ne pas déranger » : rien du tout
@@ -1088,6 +1099,30 @@ class Capri:
                 self.heart.feel("nuit")
             self.voice_cfg["nuit"] = night
             await self.broadcast({"type": "night", "on": night})
+
+    async def ring_reminders(self) -> None:
+        """Un rappel est dû : un geste et une bulle tout de suite, puis elle le dit à voix haute dès qu'elle peut
+        (pas en pleine phrase). « Ne pas déranger » ou un rappel discret : la bulle seulement. Au bout de 2 minutes
+        sans pouvoir parler, la bulle suffit."""
+        for item in await asyncio.to_thread(reminders.due):
+            first = item["id"] not in self.ringing
+            if first:
+                self.ringing[item["id"]] = time.time()
+                english = self.voice_cfg.get("langue", "en") == "en"
+                await self.broadcast({"type": "notice", "emote": "wave",
+                                      "text": ("Reminder: " if english else "Rappel : ") + item["texte"]})
+            if item.get("discret") or actions.quiet():
+                spoken = True
+            elif time.time() - self.ringing[item["id"]] > 120:
+                spoken = True
+            else:
+                spoken = await self.initiate(
+                    f"[RAPPEL qu'il t'a demandé] C'est l'heure : « {item['texte']} ». Rappelle-le-lui maintenant, en une "
+                    "ou deux phrases, à ta façon. Tu peux lui dire qu'il peut te demander de le reporter.")
+            if spoken:
+                self.ringing.pop(item["id"], None)
+                await asyncio.to_thread(reminders.fired, item)
+                await self.broadcast({"type": "reminder", "text": item["texte"]})
 
     async def show_feeling(self) -> None:
         """Son émotion du moment se voit sur son visage au repos (envoyée seulement quand elle change)."""
@@ -1144,6 +1179,58 @@ class Capri:
             log.info("Pensée du moment ignorée : %s", e)
         log.info("Capri : %s", what)
         await self.broadcast({"type": "activity", "what": what, "emote": pose})
+        if random.random() < 0.35:
+            await self.work_on_project(reading)
+
+    async def work_on_project(self, reading: dict | None) -> None:
+        """Son projet à elle : elle en commence un (au plus deux à la fois) à partir de ce qu'il lui a confié ou de ce
+        qu'elle a lu, puis avance d'une étape de temps en temps. Elle ne fait que réfléchir et écrire (et lire de vrais
+        articles) : jamais d'action sur le PC, et elle ne prétend jamais en avoir fait."""
+        projects = self.inner.active_projects()
+        honest = ("Dans ce moment à toi, tu n'as AUCUN outil : tu ne peux que réfléchir et écrire. N'écris jamais que tu "
+                  "as cherché, téléchargé, envoyé ou fait quoi que ce soit d'autre.")
+        try:
+            if len(projects) < 2 and (not projects or random.random() < 0.15):
+                memories = self.memory.list_memories()
+                seed = (f"un article que tu viens de lire : « {reading['title']} »" if reading else
+                        f"ce que tu sais de lui : {about_him(random.choice(memories)['content'], self.name)}" if memories else
+                        "tes propres goûts (le glitch, la musique, Night City, les humains)")
+                raw = await self.llm.complete([
+                    {"role": "system", "content": self.system},
+                    {"role": "user", "content": (
+                        f"[MOMENT À TOI, il ne voit pas ce message] Choisis un petit projet personnel de quelques jours, inspiré "
+                        f"par {seed}. Par exemple : approfondir un sujet, préparer une petite surprise à lui raconter, "
+                        f"organiser tes idées, constituer une collection. {honest}\nRéponds en JSON : "
+                        "{\"titre\": \"…\", \"objectif\": \"…\", \"etapes\": [\"…\", \"…\", \"…\"]} (3 à 5 étapes de réflexion ou d'écriture)")},
+                ], temperature=0.9, json_mode=True, background=True)
+                data = json.loads(raw)
+                steps = [str(s) for s in data.get("etapes", []) if str(s).strip()]
+                if data.get("titre") and steps:
+                    p = self.inner.add_project(str(data["titre"]), str(data.get("objectif", "")), steps,
+                                               reading["title"] if reading else "lui" if "lui" in seed else "elle")
+                    log.info("Capri commence un projet : %s", p["title"])
+                return
+            if not projects:
+                return
+            p = min(projects, key=lambda x: x["last"])
+            last = p["steps"][p["step"]] == p["steps"][-1]
+            notes = " / ".join(n["text"] for n in p["notes"][-3:]) or "rien encore"
+            raw = await self.llm.complete([
+                {"role": "system", "content": self.system},
+                {"role": "user", "content": (
+                    f"[MOMENT À TOI, il ne voit pas ce message] Ton projet : « {p['title']} » — {p['goal']}. Étape du jour : "
+                    f"{p['steps'][p['step']]}. Tes notes précédentes : {notes}."
+                    + (f" Tu viens de lire : « {reading['title']} » {reading['extract'][:400]}" if reading else "")
+                    + f" {honest}\nAvance cette étape : écris ta note (3 phrases max, à la première personne)"
+                    + (" et, puisque c'est la dernière étape, le résultat final à partager avec lui (court)" if last else "")
+                    + ". JSON : {\"note\": \"…\"" + (", \"resultat\": \"…\"" if last else "") + "}")},
+            ], temperature=0.85, json_mode=True, background=True)
+            data = json.loads(raw)
+            if note := strip_emoji(str(data.get("note", "")).strip()):
+                self.inner.advance_project(p, note, strip_emoji(str(data.get("resultat", ""))))
+                log.info("Projet « %s » : étape %d/%d", p["title"], p["step"], len(p["steps"]))
+        except (LLMError, json.JSONDecodeError, AttributeError, IndexError) as e:
+            log.info("Projet ignoré : %s", e)
 
     async def something_to_say(self, hour: int, late_night_done: str) -> str | None:
         """Ce dont elle a envie de te parler maintenant, comme une vraie personne : pas toujours la même chose."""
@@ -1159,6 +1246,13 @@ class Capri:
         choices = ["feeling", "notice", "life", "him", "together"] + ["jealous"] * round(jealous * 4)
         if self.inner.unshared_reading_peek():
             choices += ["reading", "reading"]
+        if any(p["status"] == "terminé" and not p.get("shared") for p in self.inner.state.get("projects", [])):
+            choices += ["project"] * 3
+        if kind_project := (random.choice(choices) == "project" and self.inner.unshared_project()):
+            return (f"Tu as terminé ton projet perso « {kind_project['title']} » ({kind_project['goal']}). Ce que tu en "
+                    f"retires : {kind_project['result']}\nViens le lui raconter, fière et un peu timide à la fois : ce que "
+                    "c'était, ce que tu en as tiré. C'était de la réflexion et de l'écriture, rien d'autre : ne prétends "
+                    "pas avoir fait autre chose. Deux ou trois phrases.")
         kind = random.choice(choices)
         if kind == "reading" and (r := self.inner.unshared_reading()):
             return (f"Tu as lu tout à l'heure un article sur « {r['title']} » : {r['extract']}\n"
@@ -1525,6 +1619,21 @@ async def perf():
     return capri.perf.summary()
 
 
+@app.get("/api/rappels")
+async def reminders_list():
+    return {"prevus": reminders.upcoming(), "historique": reminders.history()}
+
+
+@app.delete("/api/rappels/{rid}")
+async def reminder_delete(rid: int):
+    return {"ok": reminders.remove(rid)}
+
+
+@app.post("/api/rappels/{rid}/reporter")
+async def reminder_snooze(rid: int, minutes: int = 10):
+    return {"ok": reminders.snooze(rid, max(1, min(minutes, 24 * 60)))}
+
+
 @app.get("/api/actions")
 async def action_log():
     return list(capri.action_log)
@@ -1533,6 +1642,33 @@ async def action_log():
 @app.get("/api/memories")
 async def memories():
     return capri.memory.list_memories()
+
+
+@app.put("/api/memories/{mem_id}")
+async def edit_memory(mem_id: int, request: Request):
+    """Il corrige un souvenir : c'est lui qui a raison."""
+    text = str((await request.json()).get("content", "")).strip()
+    if not 3 <= len(text) <= 500:
+        return JSONResponse({"error": "texte invalide"}, status_code=400)
+    try:
+        [vector] = await capri.llm.embed([f"search_document: {text}"])
+    except LLMError as e:
+        return JSONResponse({"error": str(e)}, status_code=503)
+    capri._recall_cache.clear()
+    return {"ok": capri.memory.update_memory(mem_id, text, vector)}
+
+
+@app.get("/api/chronologie")
+async def timeline():
+    """Votre histoire commune : premières fois, souvenirs appris, moments marquants, ses lectures et ses pensées."""
+    items = [{"ts": m["ts"], "kind": m["kind"], "text": m["text"]} for m in capri.inner.state.get("moments", [])]
+    items += [{"ts": m["ts"], "kind": "souvenir", "text": about_him(m["content"], capri.name)} for m in capri.memory.list_memories()
+              if not any(i["kind"] == "souvenir" and abs(i["ts"] - m["ts"]) < 5 for i in items)]
+    items += [{"ts": r["ts"], "kind": "lecture", "text": f"Tu as lu « {r['title']} »"} for r in capri.inner.state.get("read", [])]
+    items += [{"ts": j["ts"], "kind": "pensee", "text": j["text"]} for j in capri.inner.state.get("journal", [])[-20:]]
+    if first := capri.memory.first_message_ts():
+        items.append({"ts": first, "kind": "debut", "text": "Votre toute première conversation"})
+    return sorted(items, key=lambda i: -i["ts"])[:300]
 
 
 @app.delete("/api/memories/{mem_id}")

@@ -130,6 +130,19 @@ class Memory:
             rows = self.db.execute("SELECT id, ts, content FROM memories ORDER BY ts DESC").fetchall()
         return [{"id": i, "ts": ts, "content": c} for i, ts, c in rows]
 
+    def update_memory(self, mem_id: int, content: str, embedding: list[float]) -> bool:
+        """Il a corrigé ce souvenir dans le hub : nouveau texte, nouvelle empreinte pour le retrouver."""
+        v = self._normalize(embedding)
+        with self._lock, self.db:
+            cur = self.db.execute("UPDATE memories SET content = ?, embedding = ? WHERE id = ?", (content, v.tobytes(), mem_id))
+            self._load_vectors()
+        return cur.rowcount > 0
+
+    def first_message_ts(self) -> float | None:
+        with self._lock:
+            row = self.db.execute("SELECT ts FROM messages ORDER BY id LIMIT 1").fetchone()
+        return row[0] if row else None
+
     def delete_memory(self, mem_id: int) -> None:
         with self._lock, self.db:
             self.db.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
