@@ -201,6 +201,35 @@ export class DragController {
 }
 
 /** Bordure néon autour de l'écran pendant qu'elle pilote la souris et le clavier (les clics passent à travers). */
+/**
+ * Sa bulle de dialogue, dans sa propre petite fenêtre : la fenêtre de Capri est étroite, et près d'un bord (ou au
+ * plafond) la bulle y était coupée. Ici elle a la place de s'étirer, et elle est replacée pour rester dans l'écran.
+ * `say(texte)` renvoie la hauteur à donner à la fenêtre.
+ */
+export const BUBBLE_WIDTH = 330;
+export function createBubble(): BrowserWindow {
+  const win = new BrowserWindow({
+    x: 0, y: 0, width: BUBBLE_WIDTH, height: 80, transparent: true, frame: false, resizable: false, movable: false,
+    focusable: false, skipTaskbar: true, hasShadow: false, show: false, alwaysOnTop: true, backgroundColor: '#00000000',
+    webPreferences: { offscreen: OFFSCREEN, contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(true);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;background:transparent;overflow:hidden}
+#w{display:flex;flex-direction:column;align-items:center;padding:2px 4px}
+#b{max-width:${BUBBLE_WIDTH - 16}px;font:600 13px/1.4 "Segoe UI Variable","Segoe UI",sans-serif;color:#eafff3;background:rgba(10,7,16,.94);
+border:1px solid #22f27a;border-radius:6px;padding:7px 11px;text-align:center;box-shadow:0 0 12px #22f27a55;word-wrap:break-word}
+#t{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #22f27a}
+#w.down{flex-direction:column-reverse} #w.down #t{border-top:0;border-bottom:8px solid #22f27a}
+</style></head><body><div id="w"><div id="b"></div><div id="t"></div></div><script>
+window.say=(text,down)=>{document.getElementById('b').textContent=text;document.getElementById('w').className=down?'down':'';
+return Math.ceil(document.getElementById('w').getBoundingClientRect().height)+4};
+</script></body></html>`;
+  void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  return win;
+}
+
 /** Un halo néon qui pulse autour de ce qu'elle montre (quelques secondes, les clics passent au travers). */
 export function createHighlight(bounds: Rectangle): BrowserWindow {
   const win = new BrowserWindow({

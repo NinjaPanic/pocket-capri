@@ -21,7 +21,7 @@ import { SettingsStore } from './store/settingsStore';
 import { TeleportController } from './desktop/teleportController';
 import { SEAT_RATIO, TELEPORT_TARGETS, type TeleportTarget } from './desktop/teleport';
 import { clampToDisplays, displayFor, type Rect } from './desktop/displays';
-import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
+import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, createBubble, BUBBLE_WIDTH, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
 import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, win32Status, windowRect } from './desktop/win32';
 
 const TEST = process.env.CAPRI_TEST === '1';
@@ -225,6 +225,46 @@ function onPoke() {
   else cue({ type: 'react', reaction: Math.random() < 0.25 ? 'curious' : 'happy' });
 }
 
+// ---------------------------------------------------------------- sa bulle de dialogue
+let bubbleWin: BrowserWindow | null = null;
+let bubbleHide: NodeJS.Timeout | null = null, bubbleFollow: NodeJS.Timeout | null = null;
+let bubbleH = 60, bubbleDown = false;
+/** Au-dessus de sa tête, centrée sur elle, toujours entière dans l'écran ; sous sa tête quand elle est au plafond
+ * ou trop près du haut. Suit ses déplacements tant qu'elle est affichée. */
+function placeBubble() {
+  if (!bubbleWin || bubbleWin.isDestroyed() || !charWin || charWin.isDestroyed()) return;
+  const b = herBounds(), a = displayFor(b, displaysNow()).workArea;
+  const ceiling = lastSurface === 'ceiling';
+  const headTop = b.y + b.height * 0.1, headBottom = ceiling ? b.y + b.height * 0.97 : b.y + b.height * 0.5;
+  let down = ceiling || headTop - bubbleH < a.y + 4;
+  let y = down ? headBottom : headTop - bubbleH;
+  if (y + bubbleH > a.y + a.height - 4) { down = false; y = Math.max(a.y + 4, headTop - bubbleH); }
+  const x = Math.min(Math.max(b.x + b.width / 2 - BUBBLE_WIDTH / 2, a.x + 4), a.x + a.width - BUBBLE_WIDTH - 4);
+  if (down !== bubbleDown) { bubbleDown = down; void bubbleWin.webContents.executeJavaScript(`document.getElementById('w').className=${down ? "'down'" : "''"}`).catch(() => undefined); }
+  bubbleWin.setBounds({ x: Math.round(x), y: Math.round(y), width: BUBBLE_WIDTH, height: bubbleH });
+}
+async function showBubble(text: string) {
+  if (!charWin || userHidden || fullscreenHidden) return;
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean) return;
+  const shown = clean.length > 260 ? clean.slice(0, 257).replace(/\s\S*$/, '') + '…' : clean;
+  if (!bubbleWin || bubbleWin.isDestroyed()) {
+    bubbleWin = createBubble();
+    await new Promise<void>((r) => { bubbleWin!.webContents.once('did-finish-load', () => r()); });
+  }
+  try { bubbleH = Number(await bubbleWin.webContents.executeJavaScript(`say(${JSON.stringify(shown)}, ${bubbleDown})`)) || 60; } catch { return; }
+  placeBubble();
+  bubbleWin.showInactive();
+  if (bubbleHide) clearTimeout(bubbleHide);
+  if (!bubbleFollow) bubbleFollow = setInterval(placeBubble, 50);
+  // le temps de la lire : 4 s, plus un peu pour une longue phrase
+  bubbleHide = setTimeout(() => {
+    bubbleWin?.hide();
+    if (bubbleFollow) clearInterval(bubbleFollow);
+    bubbleFollow = null;
+  }, Math.min(12_000, 4000 + shown.length * 45));
+}
+
 /** Elle s'accroche au haut de l'écran, la tête en bas (le retournement est dessiné côté affichage). */
 function hangFromTop() {
   if (!charWin || charWin.isDestroyed() || drag.active || throwTimer || fallTimer) return;
@@ -335,6 +375,7 @@ function stepBy(dx: number, dy: number) {
 
 function setCharacterVisible(visible: boolean) {
   if (!charWin) return;
+  if (!visible) bubbleWin?.hide();
   if (visible) { reveal(charWin); if (settings.get().character.alwaysOnTop) charWin.setAlwaysOnTop(true, 'floating'); }
   else conceal(charWin);
   cue({ type: 'pause', paused: !visible });
@@ -808,6 +849,7 @@ function registerIpc() {
   handle('char:control', z.boolean(), setSteering);
   handle('char:land', none, settleAfterDrop);
   handle('char:ceiling', none, hangFromTop);
+  handle('char:bubble', z.string().max(2000), (t) => void showBubble(t));
   handle('char:point', z.object({ x: z.number(), y: z.number(), w: z.number().min(0).max(10000), h: z.number().min(0).max(10000) }), pointAt);
   handle('char:step', z.object({ dx: z.number().min(-60).max(60), dy: z.number().min(-60).max(60) }), ({ dx, dy }) => stepBy(dx, dy));
   handle('char:micError', z.string().max(300), (msg) => log.warn('erreur micro', { msg }));

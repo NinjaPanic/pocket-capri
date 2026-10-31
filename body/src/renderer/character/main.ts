@@ -387,6 +387,11 @@ window.addEventListener('contextmenu', (e) => e.preventDefault());
 // ---------------------------------------------------------------- speech bubble (idle remarks only)
 let bubbleTimer = 0;
 function showBubble(text: string) {
+  // la bulle vit dans sa propre fenêtre (côté principal) : assez large, et toujours entière dans l'écran
+  if (window.capri) {
+    void api.invoke('char:bubble', text).catch(() => undefined);
+    return;
+  }
   bubble.textContent = text;
   bubble.classList.add('show');
   clearTimeout(bubbleTimer);
