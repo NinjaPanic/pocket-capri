@@ -215,6 +215,9 @@ export class SpriteBody {
     const bob = p.bodyY * 0.6 + (inp.perched || inp.grounded ? 0 : noise1(this.t * 0.21, 41) * 2);
     // on the seated drawing her bottom (not her feet) rests on the ledge: her legs hang over its edge
     const seatDrop = this.sheet === 'perch' ? PERCH_SEAT_DROP : 0;
+    // la hauteur de ses pieds sur chaque dessin de marche est mesurée en préparant ce dessin : on le prépare avant de
+    // la placer (sinon, au premier tour de marche, chaque dessin était posé trop haut d'une dizaine de pixels : à-coups)
+    if (this.sheet === 'walk' && this.vector) this.vectorFrame('walk', frame);
     const ox = W / 2 + p.bodyX * 0.5, oy = seatY - ((this.sheet === 'walk' && this.walkFeet.get(`walk:${frame}`)) || FEET[this.sheet]) * k + seatDrop * k + bob;
     let base = new Mat().translate(ox, oy).scale(flip * k, k).translate(-info.frameW / 2, 0);
     // squash & stretch (landing, bouncing off a screen edge), volume kept: flatter is wider. On a ledge

@@ -222,8 +222,9 @@ export function poseFromParams(p: Params, t: number, base: Pose): { pose: Pose; 
   // body: lean and sway, breathing
   // (drifting noise, not sinusoids: the small life in the body never loops)
   add('torso', deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + (p.breathe - 0.5) * 1.2);
-  // head: roll, a little nod
-  add('head', deg(p.headRoll) * 0.9 + p.headPitch * 8);
+  // head: roll, a little nod. Sur le dessin d'origine sa tête penche d'une trentaine de degrés : on la redresse,
+  // visage bien droit et de face (ses cheveux suivent la tête)
+  add('head', -HEAD_ANCHOR.angle + deg(p.headRoll) * 0.9 + p.headPitch * 8);
   // hair: sways, streams behind a dash
   add('hair', drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
   // black arm (left of screen): raise lifts it over the head, spread flings it out
