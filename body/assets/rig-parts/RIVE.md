@@ -9,6 +9,12 @@ comme son corps actuel, et son visage suit l'os `head`. **Tu n'as donc pas besoi
 
 Rive ne découpe pas une image. Deux façons :
 
+- **En cliquant (Segment Anything 2, installé chez toi)** : double-clique `body/tools/decoupe/Decoupe.bat`, la page
+  s'ouvre (http://127.0.0.1:8790). Clic gauche sur une partie : elle est entourée ; clic droit : « pas ça » ;
+  Maj + glisser : un cadre ; le **Pinceau** corrige à la main (gauche ajoute, droit enlève). Choisis le nom, règle le
+  débordement aux articulations, **Enregistrer**. Les PNG arrivent dans `body/assets/rig-parts/manuel/`, à la taille
+  de ton dessin : importe-les tous dans Rive au même endroit. (« Autre dessin » en bas pour charger un autre PNG.)
+
 - **Dans Photopea** (gratuit, dans le navigateur, le plus précis) : ouvre ton PNG ; pour chaque partie, Lasso
   polygonal autour d'elle (en débordant un peu aux articulations), **Ctrl+J** (la sélection devient un calque), nomme
   le calque ; recommence sur le calque d'origine. À la fin : Fichier → Exporter les calques → PNG. Chaque calque garde

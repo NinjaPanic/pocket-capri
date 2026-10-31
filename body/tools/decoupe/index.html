@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Découpe de Capri</title>
+<style>
+  :root { --bg: #0e0c14; --panel: #17141f; --line: #2c2638; --txt: #eae6f2; --mute: #9a92ab; --pink: #ff3d8b; --green: #22f27a; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 14px/1.4 "Segoe UI", sans-serif; display: flex; height: 100vh; }
+  #side { width: 300px; padding: 16px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
+  #stage { flex: 1; position: relative; overflow: hidden; }
+  canvas { position: absolute; left: 0; top: 0; }
+  h1 { font-size: 17px; margin: 0 0 4px; } h2 { font-size: 13px; color: var(--mute); text-transform: uppercase; letter-spacing: .06em; margin: 18px 0 6px; }
+  p.help { color: var(--mute); margin: 0 0 6px; font-size: 13px; }
+  kbd { background: #2a2433; border: 1px solid #3a3346; border-radius: 4px; padding: 0 5px; font-size: 12px; }
+  button, select, input[type=text] { font: inherit; color: var(--txt); background: #221d2c; border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+  button { cursor: pointer; } button:hover { border-color: var(--pink); }
+  button.main { background: var(--pink); border-color: var(--pink); color: #fff; font-weight: 600; width: 100%; margin-top: 8px; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; } .row > * { flex: 1; }
+  .mode button.on { border-color: var(--green); color: var(--green); }
+  #parts { list-style: none; padding: 0; margin: 0; }
+  #parts li { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  #parts li.done span::before { content: "✓ "; color: var(--green); }
+  #parts li.todo { color: var(--mute); }
+  #parts button { padding: 2px 8px; font-size: 12px; }
+  #status { margin-top: 10px; color: var(--mute); min-height: 20px; }
+  label.sl { display: block; color: var(--mute); font-size: 13px; margin-top: 8px; }
+  input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>Découpe de Capri</h1>
+  <p class="help">Clic <b>gauche</b> sur une partie : elle est entourée. Clic <b>droit</b> : « pas ça ». <kbd>Maj</kbd> + glisser : un cadre autour.
+    <kbd>Ctrl+Z</kbd> annule le dernier clic. Molette : zoom, clic du milieu : déplacer.</p>
+  <div class="row mode"><button id="mSam" class="on">Clics (SAM)</button><button id="mBrush">Pinceau</button></div>
+  <p class="help" id="brushHelp" hidden>Pinceau : gauche ajoute, droit enlève.</p>
+  <label class="sl" id="brushLbl" hidden>Taille du pinceau : <span id="bsv">14</span> px<input id="bs" type="range" min="2" max="60" value="14"></label>
+  <h2>Partie</h2>
+  <div class="row"><select id="name"></select></div>
+  <div class="row"><input id="custom" type="text" placeholder="…ou un autre nom (mèche, éclat…)"></div>
+  <label class="sl">Débordement aux articulations : <span id="gv">6</span> px<input id="grow" type="range" min="0" max="20" value="6"></label>
+  <button class="main" id="save">Enregistrer cette partie</button>
+  <div class="row"><button id="clear">Tout effacer</button><button id="undo">Annuler le clic</button></div>
+  <div id="status"></div>
+  <h2>Parties</h2>
+  <ul id="parts"></ul>
+  <h2>Autre dessin</h2>
+  <input id="file" type="file" accept="image/*">
+</div>
+<div id="stage"><canvas id="cv"></canvas></div>
+<script>
+const STANDARD = ["cheveux", "tete", "buste", "bras-noir-haut", "avant-bras-noir", "main-noire", "bras-rose-haut", "avant-bras-rose",
+  "main-rose", "cuisse-gauche", "jambe-gauche-bas", "pied-gauche", "cuisse-droite", "jambe-droite-bas", "pied-droit"];
+const $ = (id) => document.getElementById(id);
+const cv = $("cv"), g = cv.getContext("2d");
+let img = new Image(), W = 0, H = 0, zoom = 1, ox = 0, oy = 0;
+let points = [], box = null, dragBox = null, pan = null, mode = "sam", painting = 0;
+const mask = document.createElement("canvas"), mg = mask.getContext("2d", { willReadFrequently: true });
+const tint = document.createElement("canvas"), tg = tint.getContext("2d");
+let saved = {}; // nom → image de la partie (pour la montrer en fond)
+
+function fit() {
+  const r = $("stage").getBoundingClientRect();
+  cv.width = r.width; cv.height = r.height;
+  zoom = Math.min(r.width / W, r.height / H) * 0.95; ox = (r.width - W * zoom) / 2; oy = (r.height - H * zoom) / 2;
+  draw();
+}
+function toImg(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left - ox) / zoom, (e.clientY - r.top - oy) / zoom]; }
+function draw() {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = "#1b1724"; g.fillRect(0, 0, cv.width, cv.height);
+  g.setTransform(zoom, 0, 0, zoom, ox, oy);
+  // damier sous le dessin (la transparence se voit)
+  g.fillStyle = "#2a2433"; g.fillRect(0, 0, W, H);
+  g.drawImage(img, 0, 0);
+  // les parties déjà enregistrées : voilées
+  for (const p of Object.values(saved)) { g.globalAlpha = 0.55; g.drawImage(p, 0, 0); }
+  g.globalAlpha = 1;
+  // la sélection en cours : bleu vif
+  tg.clearRect(0, 0, W, H); tg.globalCompositeOperation = "source-over"; tg.drawImage(mask, 0, 0);
+  tg.globalCompositeOperation = "source-in"; tg.fillStyle = "rgba(40,200,255,0.55)"; tg.fillRect(0, 0, W, H);
+  g.drawImage(tint, 0, 0);
+  for (const [x, y, l] of points) {
+    g.beginPath(); g.arc(x, y, 7 / zoom, 0, Math.PI * 2); g.fillStyle = l ? "#22f27a" : "#ff3d55"; g.fill();
+    g.lineWidth = 2 / zoom; g.strokeStyle = "#000"; g.stroke();
+  }
+  const b = dragBox || box;
+  if (b) { g.strokeStyle = "#ffd400"; g.lineWidth = 2 / zoom; g.strokeRect(b[0], b[1], b[2] - b[0], b[3] - b[1]); }
+}
+function setMaskFromB64(b64) {
+  mg.clearRect(0, 0, W, H);
+  if (!b64) { draw(); return; }
+  const m = new Image();
+  m.onload = () => { // blanc → opaque, noir → transparent
+    mg.drawImage(m, 0, 0); const d = mg.getImageData(0, 0, W, H);
+    for (let i = 0; i < d.data.length; i += 4) { d.data[i + 3] = d.data[i]; d.data[i] = d.data[i + 1] = d.data[i + 2] = 255; }
+    mg.putImageData(d, 0, 0); draw();
+  };
+  m.src = "data:image/png;base64," + b64;
+}
+let busy = false, again = false;
+async function segment() {
+  if (busy) { again = true; return; }
+  busy = true;
+  const r = await fetch("/segment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points, box }) }).then((x) => x.json());
+  setMaskFromB64(r.mask); $("status").textContent = r.mask ? `confiance ${(r.score * 100).toFixed(0)} %` : "";
+  busy = false; if (again) { again = false; segment(); }
+}
+function brush(e, add) {
+  const [x, y] = toImg(e), r = +$("bs").value;
+  mg.globalCompositeOperation = add ? "source-over" : "destination-out";
+  mg.fillStyle = "#fff"; mg.beginPath(); mg.arc(x, y, r, 0, Math.PI * 2); mg.fill(); mg.globalCompositeOperation = "source-over"; draw();
+}
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("mousedown", (e) => {
+  if (e.button === 1) { pan = [e.clientX - ox, e.clientY - oy]; return; }
+  if (mode === "brush") { painting = e.button === 0 ? 1 : -1; brush(e, painting > 0); return; }
+  if (e.shiftKey && e.button === 0) { const [x, y] = toImg(e); dragBox = [x, y, x, y]; return; }
+  const [x, y] = toImg(e); points.push([x, y, e.button === 0 ? 1 : 0]); draw(); segment();
+});
+window.addEventListener("mousemove", (e) => {
+  if (pan) { ox = e.clientX - pan[0]; oy = e.clientY - pan[1]; draw(); return; }
+  if (painting) { brush(e, painting > 0); return; }
+  if (dragBox) { const [x, y] = toImg(e); dragBox[2] = x; dragBox[3] = y; draw(); }
+});
+window.addEventListener("mouseup", () => {
+  pan = null; painting = 0;
+  if (dragBox) { const b = dragBox; box = [Math.min(b[0], b[2]), Math.min(b[1], b[3]), Math.max(b[0], b[2]), Math.max(b[1], b[3])]; dragBox = null; segment(); }
+});
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault(); const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k = e.deltaY < 0 ? 1.15 : 1 / 1.15; ox = mx - (mx - ox) * k; oy = my - (my - oy) * k; zoom *= k; draw();
+}, { passive: false });
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.key === "z") { points.pop(); if (!points.length && !box) setMaskFromB64(null); else segment(); draw(); }
+});
+$("undo").onclick = () => { points.pop(); if (!points.length && !box) setMaskFromB64(null); else segment(); };
+$("clear").onclick = () => { points = []; box = null; setMaskFromB64(null); $("status").textContent = ""; };
+$("mSam").onclick = () => { mode = "sam"; $("mSam").classList.add("on"); $("mBrush").classList.remove("on"); $("brushHelp").hidden = $("brushLbl").hidden = true; };
+$("mBrush").onclick = () => { mode = "brush"; $("mBrush").classList.add("on"); $("mSam").classList.remove("on"); $("brushHelp").hidden = $("brushLbl").hidden = false; };
+$("bs").oninput = () => { $("bsv").textContent = $("bs").value; };
+$("grow").oninput = () => { $("gv").textContent = $("grow").value; };
+$("save").onclick = async () => {
+  const name = $("custom").value.trim() || $("name").value;
+  const url = mask.toDataURL("image/png");
+  // le masque part en blanc sur noir
+  const c = document.createElement("canvas"); c.width = W; c.height = H; const cg = c.getContext("2d");
+  cg.fillStyle = "#000"; cg.fillRect(0, 0, W, H); cg.drawImage(mask, 0, 0);
+  const b64 = c.toDataURL("image/png").split(",")[1];
+  const r = await fetch("/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, mask: b64, grow: +$("grow").value }) }).then((x) => x.json());
+  $("status").textContent = r.ok ? `« ${r.name} » enregistrée (${r.pixels} px)` : "erreur";
+  points = []; box = null; setMaskFromB64(null); $("custom").value = "";
+  await refresh();
+  const next = STANDARD.find((s) => !saved[s]); if (next) $("name").value = next;
+  void url;
+};
+async function refresh() {
+  const list = await fetch("/parts").then((x) => x.json());
+  saved = {};
+  await Promise.all(list.map((n) => new Promise((res) => { const im = new Image(); im.onload = () => { saved[n] = im; res(); }; im.src = `/part/${n}?t=${Date.now()}`; })));
+  const ul = $("parts"); ul.innerHTML = "";
+  for (const n of [...STANDARD, ...list.filter((x) => !STANDARD.includes(x))]) {
+    const li = document.createElement("li"); li.className = saved[n] ? "done" : "todo";
+    const s = document.createElement("span"); s.textContent = n; li.append(s);
+    if (saved[n]) { const b = document.createElement("button"); b.textContent = "supprimer"; b.onclick = async () => { await fetch(`/part/${n}`, { method: "DELETE" }); refresh(); }; li.append(b); }
+    ul.append(li);
+  }
+  draw();
+}
+$("file").onchange = async () => {
+  const f = $("file").files[0]; if (!f) return;
+  $("status").textContent = "SAM regarde ton dessin…";
+  const fd = new FormData(); fd.append("file", f);
+  await fetch("/upload", { method: "POST", body: fd }); load();
+};
+function load() {
+  img = new Image();
+  img.onload = () => {
+    W = img.width; H = img.height; mask.width = tint.width = W; mask.height = tint.height = H;
+    points = []; box = null; fit(); refresh(); $("status").textContent = "prêt";
+  };
+  img.src = "/image?t=" + Date.now();
+}
+for (const s of STANDARD) { const o = document.createElement("option"); o.textContent = s; $("name").append(o); }
+window.addEventListener("resize", fit);
+load();
+</script>
+</body>
+</html>

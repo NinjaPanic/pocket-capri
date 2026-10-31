@@ -26,3 +26,7 @@ body/reference/cutouts/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# découpe en cliquant (SAM 2) : son environnement et le dessin de travail
+body/tools/decoupe/.venv/
+body/tools/decoupe/travail.png
