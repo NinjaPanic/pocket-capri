@@ -11,9 +11,12 @@
  *
  * Son visage est le même dessin vectoriel que sur le bureau (face.ts) : net à toutes les tailles, avec ses réglages.
  */
-import modelData from '../../../assets/capri/model.json';
+import faceData from '../../../assets/desktop-sprites/faces.json';
+import rigData from '../../../assets/desktop-sprites/rig.json';
 import { drawFace, getFaceConfig, setFaceConfig } from '../character/face';
-import { Mat, prng } from '../character/geometry';
+import { Mat } from '../character/geometry';
+import { PALETTE as C } from '../character/palette';
+import { flakePattern } from '../character/rig';
 import { NEUTRAL, type Params } from '../character/params';
 
 const q = new URLSearchParams(location.search);
@@ -47,72 +50,63 @@ const pulse = (t: number, a: number, b: number) => (t > a && t < b ? Math.sin(((
 const t0 = performance.now();
 
 // ---------------------------------------------------------------- son visage
-// sa vraie crinière : les formes tracées de son modèle (pose assise, assets/capri/model.json), à la même échelle que
-// son visage, posées autour de lui ; trop grande pour l'écran, elle le déborde et l'avale
-// la caméra : de loin, toute sa tête et sa crinière tiennent dans l'écran ; de près, son visage en fait 40 % de la hauteur
+// sa tête et ses cheveux sont exactement ceux de son personnage du bureau (le dessin debout, os « tête » et « cheveux »
+// de son squelette, avec ses paillettes) : une forme d'un seul tenant par couleur, donc aucune fissure, nette à toute taille
+// la caméra : de loin, toute sa tête et ses cheveux tiennent dans l'écran ; de près, son visage en fait 40 % de la hauteur
 let zoom = 0; // 0 loin .. 1 près, réglé par chaque scène
-const K = () => { const far = (H * 0.94) / 285, near = (H * 0.4) / 36; return far * Math.pow(near / far, zoom); };
-const CY = () => { const far = H * 0.03 + 258 * ((H * 0.94) / 285), near = H * 0.6; return far + (near - far) * zoom; };
+/** Pixels d'écran par unité de son visage. */
+const K = () => { const far = (H * 0.9) / 290, near = (H * 0.4) / 36; return far * Math.pow(near / far, zoom); };
+const CY = () => { const far = H * 0.06 + 205 * ((H * 0.9) / 290), near = H * 0.6; return far + (near - far) * zoom; };
 function faceBox() { const k = K(); return { x: W / 2 - 30 * k, y: CY() - 16 * k, w: 60 * k, h: 40 * k }; }
 
-type Poly = number[][];
-const POSE = (modelData as unknown as { poses: Record<string, { face: { x: number; y: number; angle: number }; layers: Record<string, Poly[]> }> }).poses.sit;
-const HAIR_FILL: Record<string, string> = { violet: '#7b3cf0', hair: '', crimson: '', shade: '#7a0d33', ink: '#07060c' };
-/** Ses formes de cheveux, ramenées dans le repère de son visage (le corps est laissé de côté). */
-const HAIR = (() => {
-  const { x: fx0, y: fy0, angle } = POSE.face, c = Math.cos(-angle), sn = Math.sin(-angle);
-  const out: { cls: string; path: Path2D }[] = [];
-  const all = new Path2D();
-  for (const cls of ['violet', 'hair', 'crimson', 'shade', 'ink']) {
-    for (const poly of POSE.layers[cls] ?? []) {
-      if (poly.length < 3) continue;
-      const pts = poly.map(([x, y]) => [(x - fx0) * c - (y - fy0) * sn, (x - fx0) * sn + (y - fy0) * c]);
-      const cy = pts.reduce((a, q) => a + q[1], 0) / pts.length, cx = pts.reduce((a, q) => a + q[0], 0) / pts.length;
-      if (cls === 'ink' ? cy > 14 : cy > 75 || (Math.abs(cx) < 40 && cy > 40)) continue; // sa robe, son buste
-      const path = new Path2D();
-      pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
-      path.closePath();
-      out.push({ cls, path });
-      if (cls === 'hair' || cls === 'crimson') all.addPath(path);
-    }
-  }
-  return { shapes: out, all };
-})();
-const GLITTER = (() => { const r = prng(4242); return Array.from({ length: 2600 }, () => ({ x: -280 + r() * 540, y: -260 + r() * 340, s: 0.35 + r() ** 3 * 1.6, ph: r() * 6 })); })();
+type Bone = { name: string; layers: Record<string, number[][]> };
+const BONES = (rigData as unknown as { bones: Bone[] }).bones;
+const ANCHOR = (faceData as unknown as Record<string, { faces: ({ x: number; y: number; angle: number; dist: number } | null)[] }>).idle.faces[0]!;
+/** Ses os « cheveux » (derrière) puis « tête » : une forme par couleur, comme sur le bureau. */
+const PIECES = ['hair', 'head'].map((name) => {
+  const bone = BONES.find((x) => x.name === name)!;
+  return ['violet', 'hair', 'crimson', 'ink', 'green'].flatMap((cls) => {
+    const flats = bone.layers[cls] ?? [];
+    if (!flats.length) return [];
+    const path = new Path2D();
+    for (const f of flats) { path.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) path.lineTo(f[i], f[i + 1]); path.closePath(); }
+    return [{ cls, path }];
+  });
+}).flat();
 
-function drawHair(head: Mat, t: number) {
-  const col = getFaceConfig().hairColor || '#fb2f6c';
-  const m = new DOMMatrix([head.a, head.b, head.c, head.d, head.e, head.f]).rotate(Math.sin(t * 1.3) * 0.6);
+/** Ses cheveux et sa tête dans faceCv ; renvoie le repère de son visage pour drawFace. */
+function drawHead(p: Params, t: number): { head: Mat; s: number } {
+  const F = getFaceConfig(), k = K(), hs = F.headScale ?? 1;
+  // une unité de son visage = tant de pixels de son dessin (même calcul que sur le bureau)
+  const unit = (ANCHOR.dist * F.faceScale * hs) / (2 * F.eyeSpacing);
+  const spr = k / unit; // pixels d'écran par pixel de son dessin
+  const sway = Math.sin(t * 1.3) * 0.01;
+  const m = new DOMMatrix().translate(W / 2, CY()).rotate(((p.headRoll + sway) * 180) / Math.PI).scale(spr)
+    .rotate(-ANCHOR.angle).scale(hs).translate(-ANCHOR.x, -ANCHOR.y);
   fc.save();
-  fc.setTransform(new DOMMatrix([dpr, 0, 0, dpr, 0, 0]).multiply(m));
-  // chaque forme est aussi tracée de sa couleur : plus de fines lignes entre deux formes voisines
-  fc.lineWidth = 2.5 / Math.hypot(m.a, m.b); fc.lineJoin = 'round';
-  for (const { cls, path } of HAIR.shapes) {
-    fc.fillStyle = fc.strokeStyle = HAIR_FILL[cls] || col;
-    if (cls === 'violet') { fc.save(); fc.translate(-2.5, 2); fc.fill(path); fc.restore(); } else { fc.fill(path); fc.stroke(path); }
-  }
-  // les paillettes blanches de sa crinière, plus denses vers le haut, qui scintillent
-  fc.clip(HAIR.all);
-  fc.fillStyle = '#ffffff';
-  const px = 1 / Math.hypot(m.a, m.b); // une unité de son modèle → des pixels : paillettes fines à toutes les tailles
-  for (const g of GLITTER) {
-    const tw = 0.5 + 0.5 * Math.sin(t * 2.6 + g.ph);
-    fc.globalAlpha = (0.3 + 0.7 * tw) * (0.55 + 0.45 * Math.min(1, -g.y / 200));
-    const sz = g.s * 2.2 * px;
-    fc.fillRect(g.x, g.y, sz, sz);
+  fc.setTransform(new DOMMatrix().scale(dpr).multiply(m));
+  const colour: Record<string, string> = { violet: C.violet, crimson: F.hairColor, ink: C.ink, green: F.maskColor };
+  const pat = flakePattern(fc);
+  // ses paillettes restent aussi fines et serrées à l'écran que sur son petit personnage, même de très près
+  pat?.setTransform(new DOMMatrix().scale(0.25 * 1.6 / (spr * hs)));
+  for (const { cls, path } of PIECES) {
+    if (cls !== 'hair') { fc.fillStyle = colour[cls]; fc.fill(path, 'evenodd'); continue; }
+    fc.fillStyle = F.hairColor; fc.fill(path, 'evenodd');
+    if (pat) { fc.save(); fc.clip(path, 'evenodd'); fc.fillStyle = pat; fc.globalAlpha = 0.85 + 0.15 * Math.sin(t * 1.3); fc.fillRect(-400, -400, 1100, 1200); fc.restore(); }
   }
   fc.restore();
+  const head = new Mat().translate(W / 2, CY()).rotate(p.headRoll + sway).translate(F.faceX * k, F.faceY * k)
+    .rotate((F.faceAngle * Math.PI) / 180).scale(k).translate(0, -F.eyeY);
+  return { head, s: k };
 }
 
 /** Son visage dans faceCv, avec l'expression du moment. */
 function renderFace(p: Params, t: number) {
-  const k = K();
   fc.setTransform(1, 0, 0, 1, 0, 0);
   fc.clearRect(0, 0, faceCv.width, faceCv.height);
   fc.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const head = new Mat().translate(W / 2, CY()).rotate(p.headRoll).scale(k);
-  drawHair(head, t);
-  drawFace(fc, head, p, k);
+  const { head, s: k } = drawHead(p, t);
+  drawFace(fc, head, p, k, undefined, false);
 }
 
 function tinted(color: string) {
