@@ -118,10 +118,11 @@ def _fold(text: str) -> str:
 
 
 def play_search(recherche: str) -> str:
-    """« Mets Blinding Lights » : cherche sur Spotify et lance le résultat qui correspond le mieux (son bouton
-    « Lire … » / « Play … » dont le nom contient le plus de mots de la recherche). Jamais un autre bouton."""
+    """« Mets Blinding Lights » : cherche sur Spotify et lance le résultat qui correspond le mieux, en commençant par le
+    « meilleur résultat » en haut de la page. Jamais un autre bouton que « Lecture » / « Lire : … » d'un résultat."""
     import os
     from urllib.parse import quote
+    import uiautomation as auto
     win = eyes.find_window("spotify")
     if not win:
         os.startfile("spotify:")  # Spotify se lance
@@ -134,37 +135,55 @@ def play_search(recherche: str) -> str:
         time.sleep(2)
     os.startfile("spotify:search:" + quote(recherche))
     words = [w for w in re.findall(r"\w+", _fold(recherche)) if len(w) > 1]
-    import uiautomation as auto
-    for attempt in range(3):
-        time.sleep(2.0 if attempt == 0 else 1.5)
+    retyped = False
+    for attempt in range(4):
+        time.sleep(1.6 if attempt == 0 else 1.2)
         eyes._awake.discard(win.hwnd)
         eyes._wake_chromium(win.hwnd)
         best, best_score = None, 0
         with eyes._lock, auto.UIAutomationInitializerInThread():
             root = auto.ControlFromHandle(win.hwnd)
-            start = time.time()
-            for ctrl, _ in auto.WalkControl(root, maxDepth=60):
+            start, title = time.time(), None  # titre du dernier résultat vu (« Plus d'options pour … »)
+            for ctrl, depth in auto.WalkControl(root, maxDepth=60):
                 if time.time() - start > 6:
                     break
                 try:
-                    if ctrl.ControlTypeName != "ButtonControl":
-                        continue
-                    name = (ctrl.Name or "").strip()
+                    kind, name = ctrl.ControlTypeName, (ctrl.Name or "").strip()
                 except Exception:
                     continue
-                m = re.match(r"^(?:play|lire|ecouter|lecture de)\s+(.+)", _fold(name))
-                if not m:
+                if not retyped and kind == "ComboBoxControl" and re.search(r"écouter|listen|search|recherch", name, re.I):
+                    # le lien de recherche de Spotify remplace les espaces par des « + » dans le champ : on y remet le
+                    # vrai texte (Spotify relance la recherche avec)
+                    try:
+                        ctrl.GetValuePattern().SetValue(recherche)
+                        retyped = True
+                    except Exception:
+                        pass
                     continue
-                score = sum(w in m.group(1) for w in words)
-                if score > best_score:  # le premier à égalité : le meilleur résultat est en haut de la page
-                    best, best_score = (ctrl, name), score
-            if best and best_score >= max(1, len(words) // 2):
-                ctrl, name = best
+                if kind != "ButtonControl":
+                    continue
+                f = _fold(name)
+                if m := re.match(r"^(?:plus d'options pour|more options for)\s+(.+)", f):
+                    title = m.group(1)
+                    continue
+                if m := re.match(r"^(?:play|lire|ecouter)\s*:?\s+(.+)", f):
+                    found = m.group(1)  # une ligne de résultat : son titre est dans le nom du bouton
+                elif re.fullmatch(r"play|lire|lecture", f) and title and depth >= 18:
+                    found = title  # la carte « meilleur résultat » : un bouton « Lecture » juste après son titre
+                else:
+                    continue
+                score = sum(w in found for w in words)
+                if score > best_score:  # à égalité, le premier : le meilleur résultat est en haut de la page
+                    best, best_score = (ctrl, found), score
+            if retyped and attempt == 0:
+                continue  # la recherche vient d'être relancée avec le bon texte : on relit la page à jour
+            if best and best_score >= max(1, (len(words) + 1) // 2):
+                ctrl, label = best
                 for how in ("GetInvokePattern", "GetLegacyIAccessiblePattern"):
                     try:
                         pat = getattr(ctrl, how)()
                         pat.Invoke() if how == "GetInvokePattern" else pat.DoDefaultAction()
-                        return f"Sur Spotify, « {name} » lancé."
+                        return f"Sur Spotify, « {label} » lancé."
                     except Exception:
                         continue
     return f"ÉCHEC : rien trouvé sur Spotify pour « {recherche} » (la recherche est ouverte : lis la fenêtre et clique)."
