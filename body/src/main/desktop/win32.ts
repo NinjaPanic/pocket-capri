@@ -6,7 +6,7 @@ type Fn = (...a: unknown[]) => unknown;
 interface Api {
   GetForegroundWindow: Fn; GetWindowRect: Fn; MonitorFromWindow: Fn; GetMonitorInfoW: Fn;
   GetClassNameW: Fn; SHQueryUserNotificationState: Fn; GetAsyncKeyState: Fn; address: (p: unknown) => bigint;
-  RectOf: Fn; IsIconic: Fn; IsWindowVisible: Fn; IsZoomed: Fn;
+  RectOf: Fn; IsIconic: Fn; IsWindowVisible: Fn; IsZoomed: Fn; SetWindowPos: Fn;
 }
 let api: Api | null = null;
 let loadError: string | null = null;
@@ -35,6 +35,7 @@ export function loadWin32(log?: Logger): boolean {
       IsIconic: user32.func('bool __stdcall IsIconic(intptr_t hWnd)'),
       IsWindowVisible: user32.func('bool __stdcall IsWindowVisible(intptr_t hWnd)'),
       IsZoomed: user32.func('bool __stdcall IsZoomed(intptr_t hWnd)'),
+      SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hWnd, intptr_t after, int x, int y, int cx, int cy, uint32 flags)'),
     };
     return true;
   } catch (e) {
@@ -102,6 +103,12 @@ export function windowRect(hwnd: number): { x: number; y: number; width: number;
     if (!api.RectOf(hwnd, r)) return null;
     return { x: r.left!, y: r.top!, width: r.right! - r.left!, height: r.bottom! - r.top! };
   } catch { return undefined; }
+}
+
+/** Send a window to the back of the stack (every other window passes in front of it), without moving or focusing it. */
+export function sendToBack(handle: bigint): boolean {
+  if (!api) return false;
+  try { return !!api.SetWindowPos(handle, 1 /* HWND_BOTTOM */, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 /* NOSIZE|NOMOVE|NOACTIVATE */); } catch { return false; }
 }
 
 /** Is the left mouse button physically down? (used to end drags robustly). Null if unknown. */

@@ -116,9 +116,12 @@ POSES = [
     (r"tourne sur toi|une? (vrille|pirouette)|\bspin\b", "spin", "tourner sur toi-même"),
     (r"[ée]tire[- ]toi|t'?[ée]tirer|\bstretch\b", "stretch", "t'étirer"),
     (r"fais (moi )?coucou|salue[- ]moi|\bwave\b", "wave", "faire coucou"),
+    # ses mini-jeux : elle lance vraiment la partie
+    (r"cache[- ]cache|hide and seek", "game_hide", "lancer une partie de cache-cache (tu vas te cacher derrière une de ses fenêtres)"),
+    (r"(jeu|partie|jouer) (de|aux) r[ée]flexes?|reflex game", "game_reflex", "lancer une partie de réflexes (tu vas apparaître 8 fois, il doit te toucher)"),
 ]
 POSE_ASK = [(re.compile(rx, re.I), emote, verb) for rx, emote, verb in POSES]
-MOVES = {"dance", "fly", "walk", "spin", "stretch", "wave"}  # des gestes, pas des positions qu'elle garde
+MOVES = {"dance", "fly", "walk", "spin", "stretch", "wave", "game_hide", "game_reflex"}  # des gestes, pas des positions qu'elle garde
 
 
 def pose_request(text: str) -> tuple[str, str] | None:
@@ -394,7 +397,7 @@ class Capri:
                 *history,
                 {"role": "system", "content": build_context(self.mood, [m for _, m in memories], last_ts, spoken, self.name)
                  + "\n" + self.inner.mood_context() + "\n" + self.heart.describe()
-                 + self._mind_context(text)
+                 + self._mind_context(text) + await self._story_context(text)
                  + "\nVotre relation, en détail : " + self.heart.relation_text() + self._question_hint(history)
                  + self._forgotten_hint(history, text) + self._tic_hint() + self._day_recall(text) + cut},
             ]
@@ -524,12 +527,34 @@ class Capri:
             rows = self.memory.db.execute("SELECT role, content FROM messages WHERE ts >= ? AND ts < ? AND role = 'user' "
                                           "ORDER BY id LIMIT 12", (start, start + 86400)).fetchall()
         when = day.strftime("%d/%m/%Y")
+        if summary := self.memory.summary_of(day.isoformat()):
+            return (f"\nIl parle du {when}. Ton souvenir résumé de ce jour-là : {summary} "
+                    "Ne cite rien d'autre ; si ce qu'il cherche n'y est pas, dis que tu ne t'en souviens pas.")
         if not rows:
             return (f"\nIl parle du {when} : vous ne vous êtes PAS parlé ce jour-là (rien dans ta mémoire). Dis-le "
                     "franchement, n'invente aucun souvenir.")
         said = " / ".join(c[:120] for _, c in rows[:8])
         return (f"\nIl parle du {when}. Ce qu'il t'a VRAIMENT dit ce jour-là (extraits) : {said}. "
                 "Ne cite rien d'autre ; si ce qu'il cherche n'y est pas, dis que tu ne t'en souviens pas.")
+
+    async def _story_context(self, text: str) -> str:
+        """Ce qui s'est passé entre vous ces derniers jours (2 résumés), et une journée plus ancienne s'il en reparle."""
+        recent = self.memory.summaries(limit=2)
+        out = ""
+        if recent:
+            out = "\nCe qui s'est passé entre vous ces derniers jours (tes souvenirs résumés) :\n" + "\n".join(
+                f"- le {s['day']} : {s['content']}" for s in recent)
+        if re.search(r"souviens|rappelles|l'autre jour|la (semaine|fois) derni|y a (quelques|deux|trois) jours|avant[- ]hier|"
+                     r"remember|last (week|time)", text, re.I):
+            try:
+                [vector] = await self.llm.embed([f"search_query: {text}"])
+                older = [s for s in self.memory.search_summaries(vector) if s["day"] not in {r["day"] for r in recent}]
+            except LLMError:
+                older = []
+            if older:
+                out += "\nUne journée passée qui y ressemble (souvenir résumé, fiable) : " + " / ".join(
+                    f"le {s['day']} : {s['content']}" for s in older)
+        return out
 
     def _mind_context(self, text: str) -> str:
         out = ""
@@ -1419,6 +1444,7 @@ class Capri:
             log.info("Pensée du moment ignorée : %s", e)
         log.info("Capri : %s", what)
         await self.broadcast({"type": "activity", "what": what, "emote": pose})
+        await self.summarize_days()
         if random.random() < 0.35:
             await self.work_on_project(reading)
         elif random.random() < 0.5:
@@ -1467,6 +1493,36 @@ class Capri:
         except (LLMError, json.JSONDecodeError, AttributeError, ValueError) as e:
             self.curiosity.count_attempt()
             log.info("Exploration ignorée : %s", e)
+
+    async def summarize_days(self) -> None:
+        """Sa mémoire à long terme : chaque journée passée où vous vous êtes parlé devient un court résumé (ce qui s'est
+        dit, ce qui comptait, l'ambiance). Elle s'en sert pour se souvenir du fil de votre histoire, pas seulement de
+        faits isolés. En arrière-plan, quand c'est calme ; seulement ce qui a vraiment été dit."""
+        for day in self.memory.days_to_summarize(limit=2):
+            msgs = self.memory.messages_of_day(day)
+            lines = [f"{'Lui' if m['role'] == 'user' else 'Capri'} : {m['content'][:300]}" for m in msgs if m["content"].strip()]
+            if not lines:
+                continue
+            text = "\n".join(lines)[-6000:]
+            try:
+                raw = await self.llm.complete([{"role": "user", "content": (
+                    f"Voici la conversation du {day} entre lui et Capri (son IA compagne) :\n{text}\n\n"
+                    "Résume cette journée en 2 à 4 phrases, du point de vue de Capri (« on a parlé de… », « il m'a dit que… »,"
+                    " « il était… ») : les sujets, ce qui comptait pour lui, ce qu'elle a fait pour lui, l'ambiance. Seulement "
+                    "ce qui est écrit ci-dessus, aucune invention. Pas de détail technique sur toi. JSON : {\"resume\": \"…\"}")}],
+                    temperature=0.2, json_mode=True, background=True)
+                summary = strip_emoji(str(json.loads(raw).get("resume", "")).strip())
+            except (LLMError, json.JSONDecodeError, AttributeError) as e:
+                log.info("Résumé du %s remis à plus tard : %s", day, e)
+                return
+            if len(summary) < 20:
+                summary = "Une journée où on s'est à peine parlé."
+            try:
+                [vector] = await self.llm.embed([f"search_document: {summary}"])
+            except LLMError:
+                vector = None
+            self.memory.add_summary(day, summary, vector)
+            log.info("Journée du %s résumée", day)
 
     async def work_on_project(self, reading: dict | None) -> None:
         """Son projet à elle : elle en commence un (au plus deux à la fois) à partir de ce qu'il lui a confié ou de ce
@@ -1995,6 +2051,12 @@ async def timeline():
               if not any(i["kind"] == "souvenir" and abs(i["ts"] - m["ts"]) < 5 for i in items)]
     items += [{"ts": r["ts"], "kind": "lecture", "text": f"Tu as lu « {r['title']} »"} for r in capri.inner.state.get("read", [])]
     items += [{"ts": j["ts"], "kind": "pensee", "text": j["text"]} for j in capri.inner.state.get("journal", [])[-20:]]
+    for s in capri.memory.summaries(limit=60):
+        try:
+            ts = datetime.strptime(s["day"], "%Y-%m-%d").timestamp() + 22 * 3600
+        except ValueError:
+            continue
+        items.append({"ts": ts, "kind": "resume", "text": s["content"]})
     if first := capri.memory.first_message_ts():
         items.append({"ts": first, "kind": "debut", "text": "Votre toute première conversation"})
     return sorted(items, key=lambda i: -i["ts"])[:300]

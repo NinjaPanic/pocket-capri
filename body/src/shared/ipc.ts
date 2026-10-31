@@ -51,7 +51,8 @@ export type CharacterCue =
   | { type: 'teleport'; phase: 'out' | 'in'; id: number; effects: boolean }
   | { type: 'clip'; name: string }
   | { type: 'pointAt'; dir: -1 | 1 } // elle désigne quelque chose de ce côté-là
-  | { type: 'landed' } // elle vient d'atterrir après une chute (genoux qui plient, récupération)
+  | { type: 'landed' }
+  | { type: 'glitchNow' } // un glitch tout de suite (mini-jeux, apparitions) // elle vient d'atterrir après une chute (genoux qui plient, récupération)
   | { type: 'touch'; kind: 'clics' | 'lancee' } // ce qu'on lui fait, transmis à son cerveau (ses émotions)
   | { type: 'surface'; surface: 'taskbar' | 'window' | 'air' | 'edge_left' | 'edge_right' | 'ceiling' }
   | { type: 'dash'; dir: -1 | 1 | 0 }
@@ -168,6 +169,7 @@ export interface InvokeMap {
   'char:ceiling': [void, void];
   'char:bubble': [string, void];
   'char:possess': [void, void];
+  'char:game': ['hide' | 'reflex', void];
   'char:point': [{ x: number; y: number; w: number; h: number }, void];
   'connection:check': [void, ConnectionStatus];
 }
@@ -179,7 +181,7 @@ export const INVOKE_CHANNELS: InvokeChannel[] = [
   'action:respond', 'provider:test', 'provider:models', 'claude:status', 'claude:signin', 'claude:code', 'claude:signout', 'diagnostics:get', 'logs:tail', 'app:openDataFolder',
   'app:resetAll', 'app:quit', 'app:restart', 'apps:pick', 'folders:pick', 'panel:open', 'panel:close',
   'voice:ptt', 'char:hit', 'char:drag', 'char:click', 'char:menu', 'char:speechState', 'char:audio',
-  'char:micError', 'char:fps', 'tts:fetch', 'connection:get', 'connection:check', 'teleport:now', 'char:teleport', 'char:control', 'char:step', 'char:land', 'char:ceiling', 'char:bubble', 'char:possess', 'char:point',
+  'char:micError', 'char:fps', 'tts:fetch', 'connection:get', 'connection:check', 'teleport:now', 'char:teleport', 'char:control', 'char:step', 'char:land', 'char:ceiling', 'char:bubble', 'char:possess', 'char:game', 'char:point',
 ];
 export const EVENT_CHANNELS = [
   'chat:delta', 'chat:done', 'chat:message', 'chat:phase', 'action:confirm', 'action:result', 'memory:changed',

@@ -531,8 +531,8 @@ function renderDiscoveries(d) {
 }
 
 /** Votre histoire : du plus récent au plus ancien, chaque moment avec son type. */
-const KINDS = LANG === "en" ? { decouverte: "◈ explored", projet: "★ project", debut: "◆ start", souvenir: "▣ learned", jeu: "▶ game", retour: "↺ back",
-  tache: "✓ done", lecture: "◇ read", pensee: "∴ thought", avis: "≠ changed mind", scene: "✦ moment" } : { avis: "≠ avis changé", scene: "✦ moment", decouverte: "◈ exploré", projet: "★ projet", debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
+const KINDS = LANG === "en" ? { resume: "▤ our day", decouverte: "◈ explored", projet: "★ project", debut: "◆ start", souvenir: "▣ learned", jeu: "▶ game", retour: "↺ back",
+  tache: "✓ done", lecture: "◇ read", pensee: "∴ thought", avis: "≠ changed mind", scene: "✦ moment" } : { resume: "▤ notre journée", avis: "≠ avis changé", scene: "✦ moment", decouverte: "◈ exploré", projet: "★ projet", debut: "◆ début", souvenir: "▣ appris", jeu: "▶ jeu", retour: "↺ retour", tache: "✓ fait", lecture: "◇ lu", pensee: "∴ pensée" };
 function renderTimeline(items) {
   const card = el("div", "card timeline");
   card.append(el("h2", null, "Votre histoire"), el("p", "sub", "Ce qui s'est vraiment passé entre vous. Les pensées sont les siennes, pas des faits."));

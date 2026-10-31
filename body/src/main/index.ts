@@ -22,7 +22,8 @@ import { TeleportController } from './desktop/teleportController';
 import { SEAT_RATIO, TELEPORT_TARGETS, type TeleportTarget } from './desktop/teleport';
 import { clampToDisplays, displayFor, type Rect } from './desktop/displays';
 import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, createBubble, BUBBLE_WIDTH, createPossession, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
-import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, win32Status, windowRect } from './desktop/win32';
+import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, sendToBack, win32Status, windowRect } from './desktop/win32';
+import { Games } from './games';
 
 const TEST = process.env.CAPRI_TEST === '1';
 if (process.env.CAPRI_USER_DATA) app.setPath('userData', path.resolve(process.env.CAPRI_USER_DATA));
@@ -57,6 +58,8 @@ let fullscreenHidden = false;
 let interactUntil = 0;
 let quitting = false;
 let throwTimer: NodeJS.Timeout | null = null;
+let games: Games;
+let hidingBehind = false; // cache-cache : les fenêtres passent devant elle
 let lastSurface = '';
 let lastScale = NaN;
 const intervals: NodeJS.Timeout[] = [];
@@ -105,6 +108,29 @@ async function init() {
     log,
   });
 
+  games = new Games({
+    bounds: () => (charWin && !charWin.isDestroyed() ? herBounds() : null),
+    move: (x, y) => {
+      if (!charWin || charWin.isDestroyed()) return;
+      perchRect = null; perchHwnd = 0;
+      charWin.setBounds({ ...herBounds(), x, y });
+      if (hidingBehind) sendToBack(handleToBigint(charWin.getNativeWindowHandle()));
+    },
+    hideBehind: (on) => {
+      hidingBehind = on;
+      if (!charWin || charWin.isDestroyed()) return;
+      if (on) { charWin.setAlwaysOnTop(false); sendToBack(handleToBigint(charWin.getNativeWindowHandle())); } else raiseCharacter();
+    },
+    windows: () => perches.map((p) => p.rect),
+    work: () => displayFor(herBounds(), displaysNow()).workArea,
+    bubble: (t) => void showBubble(t),
+    react: (k) => cue({ type: 'react', reaction: k }),
+    glitch: () => cue({ type: 'glitchNow' }),
+    english: () => lang === 'en',
+    scores: () => { try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'jeux.json'), 'utf8')); } catch { return {}; } },
+    saveScores: (s) => { try { fs.writeFileSync(path.join(app.getPath('userData'), 'jeux.json'), JSON.stringify(s)); } catch { /* tant pis pour le record */ } },
+  });
+
   setupPermissions();
   registerIpc();
   createCharacter();
@@ -131,6 +157,7 @@ function createCharacter() {
   lastScale = s.character.scale;
   drag = new DragController(() => charWin, herSize, (moved) => {
     if (!moved) { onPoke(); return; }
+    games.stop(); // on la déplace à la main : la partie s'arrête
     perchRect = null;
     perchHwnd = 0;
     const v = drag.velocity, speed = Math.hypot(v.x, v.y);
@@ -214,6 +241,7 @@ function sendSurface(force = false) {
 let pokes: number[] = [];
 let sulkUntil = 0;
 function onPoke() {
+  if (games?.click()) return; // pendant une partie, un clic sur elle compte pour le jeu
   const now = Date.now();
   if (now < sulkUntil) return;
   pokes = [...pokes.filter((t) => now - t < 2500), now];
@@ -377,7 +405,7 @@ function stepBy(dx: number, dy: number) {
 
 function setCharacterVisible(visible: boolean) {
   if (!charWin) return;
-  if (!visible) bubbleWin?.hide();
+  if (!visible) { bubbleWin?.hide(); games?.stop(); }
   if (visible) { reveal(charWin); if (settings.get().character.alwaysOnTop) charWin.setAlwaysOnTop(true, 'floating'); }
   else conceal(charWin);
   cue({ type: 'pause', paused: !visible });
@@ -631,6 +659,7 @@ function fullscreenTick() {
 let lastFg = 0n;
 function raiseCharacter() {
   if (!charWin || charWin.isDestroyed() || userHidden || fullscreenHidden || !settings.get().character.alwaysOnTop) return;
+  if (hidingBehind) return; // cache-cache : elle reste derrière les fenêtres
   // assise sur la barre des tâches, ses jambes passent devant : elle doit être au-dessus de la barre elle-même
   charWin.setAlwaysOnTop(true, lastSurface === 'taskbar' ? 'screen-saver' : 'floating');
   charWin.moveTop();
@@ -678,7 +707,7 @@ const EN: Record<string, string> = {
   "S'étirer": 'Stretch', 'Saluer': 'Wave', 'Danser': 'Dance', 'Tourner sur elle-même': 'Spin', 'Regarder autour': 'Look around', 'Dormir': 'Sleep',
   'Au hasard': 'Anywhere', 'Près de la souris': 'Near the mouse', 'Sur la fenêtre active': 'On the active window',
   'Coucou depuis un bord': 'Peek from an edge', 'Dans un coin': 'In a corner',
-  "À l'envers, au plafond": 'Upside down, on the ceiling', 'Taille': 'Size', 'Petite': 'Small', 'Normale': 'Normal', 'Grande': 'Large', 'Très grande': 'Huge',
+  "À l'envers, au plafond": 'Upside down, on the ceiling', 'Jouer': 'Play', 'Cache-cache': 'Hide and seek', 'Réflexes': 'Reflexes', 'Taille': 'Size', 'Petite': 'Small', 'Normale': 'Normal', 'Grande': 'Large', 'Très grande': 'Huge',
   'Déplacements': 'Moving around', 'Immobile': 'Still', 'Promenade': 'Wandering', 'Agitée': 'Restless',
   'Animations': 'Animations', 'Calmes': 'Calm', 'Exubérantes': 'Exuberant', 'Effets glitch': 'Glitch effects',
   'Mode discret (dans un coin, silencieuse)': 'Discreet mode (in a corner, silent)', 'Rappels…': 'Reminders…',
@@ -724,6 +753,10 @@ function menuItems(short: boolean): MenuItemConstructorOptions[] {
         label: tr(label), type: 'radio' as const, checked: Math.abs(s.character.animationIntensity - v) < 0.05, click: () => settings.update({ character: { animationIntensity: v } }) })),
       { type: 'separator' as const },
       { label: tr('Effets glitch'), type: 'checkbox' as const, checked: s.character.glitchEffects, click: (i: { checked: boolean }) => settings.update({ character: { glitchEffects: i.checked } }) },
+    ] },
+    { label: tr('Jouer'), enabled: visible, submenu: [
+      { label: tr('Cache-cache'), click: () => games.start('hide') },
+      { label: tr('Réflexes'), click: () => games.start('reflex') },
     ] },
     { label: tr('Mode discret (dans un coin, silencieuse)'), type: 'checkbox', checked: s.behavior.doNotDisturb, click: (i) => {
       settings.update({ behavior: { doNotDisturb: i.checked } });
@@ -851,6 +884,7 @@ function registerIpc() {
   handle('char:land', none, settleAfterDrop);
   handle('char:ceiling', none, hangFromTop);
   handle('char:bubble', z.string().max(2000), (t) => void showBubble(t));
+  handle('char:game', z.enum(['hide', 'reflex']), (k) => games.start(k));
   // scène rare : pas pendant un jeu en plein écran ni en mode discret (l'effet ne bloque rien, mais il surprendrait)
   handle('char:possess', none, () => {
     if (!charWin || fullscreenHidden || userHidden || settings.get().behavior.doNotDisturb) return;

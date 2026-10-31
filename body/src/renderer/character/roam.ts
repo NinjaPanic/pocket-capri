@@ -29,6 +29,7 @@ export interface RoamOutput {
   step: { dx: number; dy: number }; // déplacement de sa fenêtre à faire maintenant
   pose: Partial<Params> | null; // par-dessus sa pose : direction du vol, etc.
   spin: number; // rotation de tout son corps (radians) : vrilles et loopings pour s'amuser
+  star?: boolean; // grand déplacement : elle voyage changée en étoile lumineuse
 }
 
 export interface RoamActions {
@@ -41,7 +42,7 @@ export interface RoamActions {
 }
 
 type Mode = { kind: 'rest'; until: number } | { kind: 'walk'; toX: number; dir: -1 | 1 }
-  | { kind: 'fly'; to: { x: number; y: number }; dir: -1 | 1; then?: PostureName; roll?: number; ground: boolean }
+  | { kind: 'fly'; to: { x: number; y: number }; dir: -1 | 1; then?: PostureName; roll?: number; ground: boolean; star?: boolean }
   | { kind: 'spin'; t: number; dur: number; turns: number; dir: -1 | 1 };
 
 const WALK_SPEED = 70; // DIP/s
@@ -122,7 +123,8 @@ export class Roamer {
       out.spin = m.dir * (u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u)) * Math.PI * 2;
     }
     out.dir = m.dir;
-    const speed = Math.min(FLY_SPEED, 60 + dist * 2.2);
+    const speed = m.star ? Math.min(FLY_SPEED * 2.4, 120 + dist * 4) : Math.min(FLY_SPEED, 60 + dist * 2.2);
+    out.star = m.star;
     const k = Math.min(dist, speed * dt) / dist;
     out.step.dx = this.take('x', dx * k);
     out.step.dy = this.take('y', dy * k);
@@ -214,7 +216,9 @@ export class Roamer {
     to.x = Math.round(Math.max(work.x - me.width * 0.2, Math.min(work.x + work.width - me.width * 0.8, to.x)));
     to.y = Math.round(to.y);
     if (Math.hypot(to.x - me.x, to.y - me.y) < 40) { if (then) this.act.posture(then); return; }
-    this.mode = { kind: 'fly', to, dir: to.x >= me.x ? 1 : -1, then, ground: landing !== null };
+    // un long trajet, parfois : elle s'y rend changée en étoile (plus vite, sans vrille), et reprend forme à l'arrivée
+    const star = Math.hypot(to.x - me.x, to.y - me.y) > 520 && this.random() < 0.35;
+    this.mode = { kind: 'fly', to, dir: to.x >= me.x ? 1 : -1, then, ground: landing !== null, star };
     this.act.posture('fly');
   }
 

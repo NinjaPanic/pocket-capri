@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS memories (
     content TEXT NOT NULL,
     embedding BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS summaries (
+    day TEXT PRIMARY KEY,
+    ts REAL NOT NULL,
+    content TEXT NOT NULL,
+    embedding BLOB
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -121,6 +127,52 @@ class Memory:
                 return []
             best = np.argsort(-scores)[:k]
             return [(self._ids[i], self._texts[i]) for i in best if scores[i] >= min_score]
+
+    # --- Résumés de vos journées (sa mémoire à long terme) -------------------
+
+    def days_to_summarize(self, limit: int = 3) -> list[str]:
+        """Les journées passées (pas aujourd'hui) où vous vous êtes parlé et qu'elle n'a pas encore résumées."""
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT DISTINCT date(ts, 'unixepoch', 'localtime') AS d FROM messages "
+                "WHERE d < date('now', 'localtime') AND d NOT IN (SELECT day FROM summaries) ORDER BY d DESC LIMIT ?",
+                (limit,)).fetchall()
+        return [r[0] for r in rows]
+
+    def messages_of_day(self, day: str) -> list[dict]:
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT ts, role, content FROM messages WHERE date(ts, 'unixepoch', 'localtime') = ? ORDER BY id",
+                (day,)).fetchall()
+        return [{"ts": ts, "role": role, "content": c} for ts, role, c in rows]
+
+    def add_summary(self, day: str, content: str, embedding: list[float] | None) -> None:
+        blob = self._normalize(embedding).tobytes() if embedding else None
+        with self._lock, self.db:
+            self.db.execute("INSERT OR REPLACE INTO summaries (day, ts, content, embedding) VALUES (?, ?, ?, ?)",
+                            (day, time.time(), content, blob))
+
+    def summaries(self, limit: int = 60) -> list[dict]:
+        with self._lock:
+            rows = self.db.execute("SELECT day, content FROM summaries ORDER BY day DESC LIMIT ?", (limit,)).fetchall()
+        return [{"day": d, "content": c} for d, c in rows]
+
+    def summary_of(self, day: str) -> str | None:
+        with self._lock:
+            row = self.db.execute("SELECT content FROM summaries WHERE day = ?", (day,)).fetchone()
+        return row[0] if row else None
+
+    def search_summaries(self, embedding: list[float], k: int = 2, min_score: float = 0.45) -> list[dict]:
+        """Les journées dont le résumé ressemble le plus à ce dont il parle."""
+        v = self._normalize(embedding)
+        with self._lock:
+            rows = self.db.execute("SELECT day, content, embedding FROM summaries WHERE embedding IS NOT NULL").fetchall()
+        scored = []
+        for day, content, blob in rows:
+            e = np.frombuffer(blob, dtype=np.float32)
+            if e.shape == v.shape:
+                scored.append((float(e @ v), day, content))
+        return [{"day": d, "content": c} for s, d, c in sorted(scored, reverse=True)[:k] if s >= min_score]
 
     def count(self) -> int:
         return len(self._ids)

@@ -58,6 +58,13 @@ let dragging = false;
 let forced: Partial<Params> | null = null;
 let surface: Surface = 'taskbar';
 let dashing = 0; // pose override for previews/tests only
+// grand vol en étoile : l'étoile et sa traînée, puis une gerbe de particules quand elle reprend forme
+let starOn = false, starBurst = 0, starForced = false;
+const starMoves: { dx: number; dy: number }[] = [];
+// glyphes de hacker qui défilent derrière elle quand elle pilote le PC (purement visuel)
+const GLYPHS = '01ｱｲｳｴｵｶｷｸｹｺｻｼｽ#$%&*+<>/\\';
+let glyphCols: { x: number; y: number; v: number }[] = [];
+let sleepingSince = 0, cornerDone = false; // longue sieste : elle file dormir dans un coin
 let copiesT = 0; const COPIES_DUR = 3.4; // ses copies rouge et verte (0 = pas en cours)
 const copyCanvas = document.createElement('canvas'), copyCtx = copyCanvas.getContext('2d')!;
 let pointUntil = 0, pointDir = 1; // elle désigne quelque chose (actions guidées) : tournée de ce côté
@@ -143,6 +150,7 @@ function onBrain(e: BrainEvent) {
 }
 /** A pose or gesture by name (menu, or what she is doing on her own). */
 function emote(name: string) {
+  if (name === 'game_hide' || name === 'game_reflex') { roamer.halt(70_000); void api.invoke('char:game', name === 'game_hide' ? 'hide' : 'reflex').catch(() => undefined); return; }
   if (name === 'ceiling') { roamer.halt(20_000); void api.invoke('char:ceiling').catch(() => undefined); return; }
   if (name === 'walk' || name === 'fly' || name === 'spin') { roamer.command(name, roamWorld(false)); return; }
   const e = EMOTE_MAP[name];
@@ -246,6 +254,10 @@ function tick(dt: number) {
     if (me) me = { ...me, x: me.x + roam.step.dx, y: me.y + roam.step.dy };
   }
   const walk = dashing || roam.walkDir; // the drawn walk (feet added on the leg tips, see SpriteBody.drawFeet)
+  if (behavior.state === 'sleeping') {
+    sleepingSince ||= performance.now();
+    if (!cornerDone && performance.now() - sleepingSince > 15 * 60_000) { cornerDone = true; void api.invoke('teleport:now', 'corner').catch(() => undefined); }
+  } else { sleepingSince = 0; cornerDone = false; }
   const target: Params = behavior.update(dt, {
     phase, speechLevel: level, speaking, pointer, idleSec, quiet: quiet || night, intensity: night ? intensity * 0.6 : intensity,
     sleepAfterSec: settings.behavior.sleepAfterMinutes * 60,
@@ -287,6 +299,19 @@ function tick(dt: number) {
   // à mi-retournement elle est couchée en travers de sa fenêtre étroite : un peu plus petite le temps du tour
   if (flipAngle) { const sc = 1 - 0.3 * Math.abs(Math.sin(flipAngle)); g.translate(W / 2, H / 2); g.rotate(flipAngle); g.scale(sc, sc); g.translate(-W / 2, -H / 2); }
   lastP = p;
+  if (workPose && !night) drawGlyphs(g, dt);
+  // en étoile : pas de corps, juste l'étoile et sa traînée
+  const wantStar = !!roam.star || starForced;
+  if (wantStar !== starOn) {
+    starOn = wantStar;
+    if (!wantStar) starBurst = 0.001;
+  }
+  if (starOn) {
+    starMoves.push(roam.step); if (starMoves.length > 8) starMoves.shift();
+    drawStar(g, dt);
+    if (g !== ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(off, 0, 0); }
+    return;
+  }
   // the hand-drawn sprite body with her live face; the traced model when chosen in the editor or while sheets load
   const drewSprite = getFaceConfig().spriteBody >= 0.5 && sprite.draw(g, p, dt, {
     sleeping: behavior.state === 'sleeping', waking: behavior.state === 'returning', dragging, dashing: walk,
@@ -303,6 +328,7 @@ function tick(dt: number) {
     model.post(ctx, off, Math.max(0.3, model.burst * 0.9));
   }
   if (teleporting) fx.render(ctx, off, dt, dpr);
+  if (starBurst > 0) drawBurst(dt);
   // ses copies : une rouge à gauche, une verte à droite, qui se détachent (avec un léger retard l'une sur l'autre),
   // tremblent un peu, puis reviennent se fondre en elle
   if (copiesT > 0) {
@@ -348,6 +374,72 @@ function trackPat(x: number, y: number) {
     behavior.react('happy');
     brain.send({ type: 'touch', kind: 'caresse' }); // ça la touche vraiment (son cœur)
   }
+}
+
+/** Elle voyage en étoile : un astre à quatre branches qui pulse, avec une traînée de lumière derrière lui. */
+function drawStar(g: CanvasRenderingContext2D, dt: number) {
+  const cx = W / 2, cy = H * 0.45, t = performance.now() / 1000;
+  // la traînée part à l'opposé du mouvement (ses derniers pas)
+  const mv = starMoves.reduce((a, s) => ({ x: a.x + s.dx, y: a.y + s.dy }), { x: 0, y: 0 });
+  const len = Math.hypot(mv.x, mv.y) || 1, ux = -mv.x / len, uy = -mv.y / len;
+  for (let i = 8; i >= 1; i--) {
+    const r = 16 - i * 1.4;
+    g.globalAlpha = 0.5 * (1 - i / 9);
+    g.fillStyle = i % 2 ? '#ff3d8b' : '#22f27a';
+    g.beginPath(); g.arc(cx + ux * i * 14, cy + uy * i * 14, Math.max(2, r), 0, Math.PI * 2); g.fill();
+  }
+  g.globalAlpha = 1;
+  const pulse = 1 + 0.15 * Math.sin(t * 18), R = 46 * pulse, r = 10;
+  g.save();
+  g.translate(cx, cy); g.rotate(t * 3);
+  g.shadowColor = '#ff3d8b'; g.shadowBlur = 30;
+  g.fillStyle = '#fff6fb';
+  g.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4, rad = i % 2 ? r : R;
+    g.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+  }
+  g.closePath(); g.fill();
+  g.shadowColor = '#22f27a'; g.shadowBlur = 18; g.fillStyle = '#22f27a';
+  g.beginPath(); g.arc(0, 0, 5, 0, Math.PI * 2); g.fill();
+  g.restore();
+  void dt;
+}
+
+/** Elle reprend forme : une gerbe de rayons et d'éclats qui s'efface en 0,6 s. */
+function drawBurst(dt: number) {
+  starBurst += dt;
+  const u = Math.min(1, starBurst / 0.6);
+  if (u >= 1) { starBurst = 0; return; }
+  const cx = W / 2, cy = H * 0.45;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalCompositeOperation = 'destination-over';
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2, d = 20 + u * 110;
+    ctx.globalAlpha = 1 - u;
+    ctx.strokeStyle = i % 2 ? '#ff3d8b' : '#22f27a';
+    ctx.lineWidth = 3 * (1 - u) + 1;
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * d * 0.4, cy + Math.sin(a) * d * 0.4); ctx.lineTo(cx + Math.cos(a) * d, cy + Math.sin(a) * d); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Colonnes de glyphes verts qui défilent derrière elle pendant qu'elle pilote le PC. */
+function drawGlyphs(g: CanvasRenderingContext2D, dt: number) {
+  if (glyphCols.length !== 9) glyphCols = Array.from({ length: 9 }, (_, i) => ({ x: (i + 0.5) * (W / 9), y: Math.random() * H, v: 60 + Math.random() * 90 }));
+  g.save();
+  g.font = '15px Consolas, monospace';
+  for (const c of glyphCols) {
+    c.y += c.v * dt;
+    if (c.y > H + 120) c.y = -20;
+    for (let k = 0; k < 8; k++) {
+      g.globalAlpha = 0.6 * (1 - k / 8);
+      g.fillStyle = k === 0 ? '#d8ffe9' : '#22f27a';
+      g.fillText(GLYPHS[Math.floor((c.y / 14 + k * 7 + c.x) % GLYPHS.length)], c.x, c.y - k * 15);
+    }
+  }
+  g.restore();
 }
 
 // the cursor rushing at her face: now and then she ducks aside, then looks back at it (never while busy or held)
@@ -465,6 +557,7 @@ api.on('cue', (raw) => {
     case 'workPose': workPose = c.pose; break;
     case 'touch': brain.send({ type: 'touch', kind: c.kind }); break;
     case 'landed': behavior.landed(true); break;
+    case 'glitchNow': if (settings.character.glitchEffects) model.glitchNow('slice', 0.5); break;
     case 'pointAt': pointUntil = performance.now() + 4000; pointDir = c.dir; behavior.playClip('reach_claw', 'action'); break;
     case 'teleport': onTeleport(c.phase, c.id, c.effects); break;
     case 'clip': emote(c.name); break;
@@ -506,6 +599,8 @@ function shareSettings() {
     setFace: (c: Record<string, unknown>) => setFaceConfig(c),
     setWorkPose(p: 'back' | 'crouch' | 'sit' | null) { workPose = p; },
     copies() { copiesT = 0.001; },
+    star(on: boolean) { starForced = on; starMoves.length = 0; starMoves.push({ dx: 6, dy: -2 }); },
+    work(on: boolean) { workPose = on ? 'back' : null; },
     hitAt: (x: number, y: number) => model.hitTest(ctx, x, y, dpr),
     // ---- deterministic capture mode (trailer / docs): stop the clock, advance exact frames, export pixels
     manual(on: boolean) { if (on) { cancelAnimationFrame(raf); paused = true; } else { paused = false; last = performance.now(); raf = requestAnimationFrame(loop); } },
