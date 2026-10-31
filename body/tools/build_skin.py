@@ -96,10 +96,40 @@ def main():
     bones = [{"name": n, "parent": BONES[n][1], "pivot": [round(v, 1) for v in pivot[n]], "end": [round(v, 1) for v in end[n]]}
              for n in names]
 
+    # --- où sont ses yeux sur le dessin (son visage vivant se pose là)
+    src = np.array(Image.open(ROOT / "rig-parts" / "source" / "capri-face.webp").convert("RGBA")).astype(int)
+    blue = (src[..., 2] > 200) & (src[..., 0] < 90) & (src[..., 1] > 60) & (src[..., 1] < 180) & masks["head"][1]
+    ys, xs = np.nonzero(blue)
+    mid = np.median(xs)
+    le, ri = (xs[xs < mid].mean(), ys[xs < mid].mean()), (xs[xs >= mid].mean(), ys[xs >= mid].mean())
+    face = {"x": round(float((le[0] + ri[0]) / 2), 1), "y": round(float((le[1] + ri[1]) / 2), 1),
+            "dist": round(float(np.hypot(ri[0] - le[0], ri[1] - le[1])), 1),
+            "angle": round(math.degrees(math.atan2(ri[1] - le[1], ri[0] - le[0])), 1)}
+
+    # le bras noir, tout noir (le dessin y avait des bandes vertes)
+    for bone in ("upperArmL", "forearmL", "handL"):
+        a, m = masks[bone]
+        a = a.copy()
+        green = (a[..., 1] > 150) & (a[..., 0] < 140) & (a[..., 1] > a[..., 2])
+        a[green, 0], a[green, 1], a[green, 2] = 7, 6, 12
+        masks[bone] = (a, m)
+
+    # les mèches en haut à gauche de son visage passent DEVANT lui : la même zone des cheveux, redessinée après
+    # son visage (même os, même place : aucune coupure)
+    ha, hm = masks["hair"]
+    yy, xx = np.mgrid[0:H, 0:W]
+    fx, fy, fd = face["x"], face["y"], face["dist"]
+    front = hm & (xx >= fx - 1.6 * fd) & (xx <= fx - 0.15 * fd) & (yy >= fy - 1.5 * fd) & (yy <= fy + 0.5 * fd)
+
     # --- les maillages
     parts = []
-    for bone, (f, parent, z) in sorted(BONES.items(), key=lambda kv: kv[1][2]):
-        a, m = masks[bone]
+    jobs = [(bone, f, parent, z, masks[bone][0], masks[bone][1], False) for bone, (f, parent, z) in BONES.items()]
+    if front.any():
+        jobs.append(("hair", "meches-devant", "head", 100, ha, front, True))
+    for bone, f, parent, z, a, m in [(j[0], j[1], j[2], j[3], j[4], j[5]) for j in sorted(jobs, key=lambda j: j[3])]:
+        is_front = f == "meches-devant"
+        a = a.copy()
+        a[~m, 3] = 0
         ys, xs = np.nonzero(m)
         pad = CELL * 2
         x0, y0 = max(0, xs.min() - pad), max(0, ys.min() - pad)
@@ -140,20 +170,12 @@ def main():
                 w[child] = 0.5 * (1 - smooth(0, R, de))
             w[bone] = max(0.0, 1 - sum(w.values()))
             top = sorted(w.items(), key=lambda kv: -kv[1])[:3]
-            s = sum(t[1] for t in top) or 1
-            weights.append([[idx[k], round(val / s, 4)] for k, val in top if val > 0.001])
-        parts.append({"file": f, "bone": bone, "z": z, "box": [int(x0), int(y0), int(x1), int(y1)],
+            s_ = sum(t[1] for t in top) or 1
+            weights.append([[idx[k], round(val / s_, 4)] for k, val in top if val > 0.001])
+        parts.append({"file": f, "bone": bone, "z": z, "front": is_front, "box": [int(x0), int(y0), int(x1), int(y1)],
                       "verts": [[round(x, 1), round(y, 1)] for x, y in verts], "tris": tris, "weights": weights})
         print(f"{f:20} {len(verts):5} sommets, {len(tris) // 3:5} triangles")
 
-    # --- où sont ses yeux sur le dessin (son visage vivant se pose là)
-    src = np.array(Image.open(ROOT / "rig-parts" / "source" / "capri-face.webp").convert("RGBA")).astype(int)
-    blue = (src[..., 2] > 200) & (src[..., 0] < 90) & (src[..., 1] > 60) & (src[..., 1] < 180) & masks["head"][1]
-    ys, xs = np.nonzero(blue)
-    mid = np.median(xs)
-    le, ri = (xs[xs < mid].mean(), ys[xs < mid].mean()), (xs[xs >= mid].mean(), ys[xs >= mid].mean())
-    face = {"x": round((le[0] + ri[0]) / 2, 1), "y": round((le[1] + ri[1]) / 2, 1), "dist": round(float(np.hypot(ri[0] - le[0], ri[1] - le[1])), 1),
-            "angle": round(math.degrees(math.atan2(ri[1] - le[1], ri[0] - le[0])), 1)}
     feet = float(max(end["footL"][1], end["footR"][1]))
     json.dump({"size": [W, H], "feet": feet, "face": face, "bones": bones, "parts": parts},
               open(OUT / "skin.json", "w", encoding="utf-8"), separators=(",", ":"))
