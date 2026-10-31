@@ -121,7 +121,7 @@ async function init() {
   void startBrain().then(brainTick);
   for (const ev of ['display-removed', 'display-added', 'display-metrics-changed'] as const) screen.on(ev as 'display-added', reclampCharacter);
   powerMonitor.on('resume', reclampCharacter);
-  if (TEST) (globalThis as Record<string, unknown>).__capri = { get teleporter() { return teleporter; }, settings, get charWin() { return charWin; }, settleAfterDrop, throwCharacter };
+  if (TEST) (globalThis as Record<string, unknown>).__capri = { get teleporter() { return teleporter; }, settings, get charWin() { return charWin; }, get hubWin() { return hubWin; }, settleAfterDrop, throwCharacter, menuItems, get userHidden() { return userHidden; }, get lastCues() { return lastCues; } };
 }
 
 // ---------------------------------------------------------------- sa fenêtre
@@ -180,7 +180,9 @@ function reclampCharacter() {
   const b = herBounds(), c = clampToDisplays(b, displaysNow());
   if (c.x !== b.x || c.y !== b.y) { charWin.setBounds(c); savePosition(); }
 }
+const lastCues: CharacterCue[] = []; // (tests seulement : ce que le menu a demandé à l'affichage)
 function cue(c: CharacterCue) {
+  if (TEST) lastCues.push(c);
   if (charWin && !charWin.isDestroyed()) charWin.webContents.send('cue', c);
 }
 
@@ -730,7 +732,6 @@ function menuItems(short: boolean): MenuItemConstructorOptions[] {
       void fetch(`${BRAIN_HTTP}/api/reglages`, { method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ section: 'silence', key: 'minutes', value: i.checked ? 24 * 60 : 0 }) }).catch(() => undefined);
     } },
-    { label: tr('Ne pas déranger'), type: 'checkbox', checked: s.behavior.doNotDisturb, click: (i) => settings.update({ behavior: { doNotDisturb: i.checked } }) },
     { label: tr('Laisser passer les clics'), type: 'checkbox', checked: s.character.clickThrough, click: (i) => settings.update({ character: { clickThrough: i.checked } }) },
     { label: tr('Lancer avec Windows'), type: 'checkbox', checked: s.startup.launchOnLogin, click: (i) => settings.update({ startup: { launchOnLogin: i.checked } }) },
   ];

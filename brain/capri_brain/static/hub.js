@@ -250,8 +250,8 @@ const SETTINGS = [
   ["Vie", "Ce qu'elle fait d'elle-même.", "vie", [
     ["accueil", "Remarquer ton retour", "", "bool"],
     ["absence_minutes", "Absence avant de te saluer", "minutes", "number", 1, 240],
-    ["bavardage", "Bavarde", "0 = discrète, 1 = parle tout le temps", "range", 0, 1, 0.05],
-    ["spontane_minutes", "Phrase spontanée après", "minutes de silence, 0 = jamais", "number", 0, 600],
+    ["spontane_minutes", "Délai avant qu'elle vienne te parler", "minutes de silence ; 0 = elle ne vient jamais d'elle-même", "number", 0, 600],
+    ["bavardage", "Bavarde", "règle ce délai et sa façon de parler : 0 = discrète (délai ×2, réponses courtes) · 0,5 = normal · 1 = parle tout le temps (délai ÷4, relance la conversation)", "range", 0, 1, 0.05],
     ["reactions_pc", "Réagir à ce qui se passe sur le PC", "jeu lancé, réseau, clé USB, processeur qui chauffe, longue session", "bool"],
     ["liberer_gpu_en_jeu", "Libérer la carte graphique pendant un jeu", "son modèle revient quand le jeu se ferme", "bool"],
     ["curiosite", "Explorer des sujets d'elle-même", "Wikipédia, lecture seule", "bool"],

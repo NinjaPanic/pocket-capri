@@ -1123,7 +1123,7 @@ class Capri:
         next_talk = time.time() + self._talk_delay(cfg)
         waiting_reply_until = 0.0
         late_night_done = ""
-        senses = Senses() if cfg.get("reactions_pc", True) else None
+        senses = Senses()
         next_sense = 0.0
         while True:
             await asyncio.sleep(2)
@@ -1131,7 +1131,8 @@ class Capri:
                 now = time.time()
                 if self.status != "prête":
                     continue
-                if senses and now >= next_sense:
+                # (lu à chaque tour : l'interrupteur du hub s'applique tout de suite)
+                if cfg.get("reactions_pc", True) and now >= next_sense:
                     next_sense = now + 10
                     self.events.extend(await asyncio.to_thread(senses.poll, life.idle_seconds()))
                 await self.ring_reminders()
