@@ -3,7 +3,7 @@ import vectorData from '../../../assets/desktop-sprites/vector.json';
 import { Mat, clamp } from './geometry';
 import { clipOutFace, drawFace, getFaceConfig, setFaceOutline } from './face';
 import { PALETTE as C } from './palette';
-import { Rig, drawRigged, flakePattern } from './rig';
+import { HAIR_TURN, HEAD_SHIFT, Rig, drawRigged, flakePattern } from './rig';
 import type { Params } from './params';
 import { noise1 } from './motion';
 
@@ -206,9 +206,13 @@ export class SpriteBody {
     // hair scaled up around her head (in sprite px, the current transform must map the sprite)
     // (the hair no more than the articulated body's head: on the seated drawing it is already spread wide)
     const hairGrow = Math.min(grow, F.headScale ?? 1);
+    // en marchant, sa tête reste droite et de face comme au repos : ses cheveux tournent autour de son visage
+    const upright = this.sheet === 'walk' && !!anchor;
     const bigHair = (path: Path2D) => {
-      if (Math.abs(hairGrow - 1) < 0.01 || !anchor) { paintHair(path); return; }
-      ctx.save(); ctx.translate(anchor.x, anchor.y); ctx.scale(hairGrow, hairGrow); ctx.translate(-anchor.x, -anchor.y);
+      if (!anchor) { paintHair(path); return; }
+      ctx.save();
+      if (upright) { ctx.translate(anchor.x + HEAD_SHIFT, anchor.y); ctx.rotate(((-anchor.angle + HAIR_TURN) * Math.PI) / 180); ctx.translate(-anchor.x, -anchor.y); }
+      if (Math.abs(hairGrow - 1) >= 0.01) { ctx.translate(anchor.x, anchor.y); ctx.scale(hairGrow, hairGrow); ctx.translate(-anchor.x, -anchor.y); }
       paintHair(path); ctx.restore();
     };
     const flip = inp.facing < 0 ? -1 : 1;
@@ -266,9 +270,9 @@ export class SpriteBody {
     // her live face over the sprite's head, held at the last known spot on frames without one
     if (!anchor) return true;
     this.lastFace = anchor;
-    const [hx, hy] = base.apply([anchor.x, anchor.y]);
+    const [hx, hy] = base.apply([anchor.x + (upright ? HEAD_SHIFT : 0), anchor.y]);
     const s = (anchor.dist * k * F.faceScale * grow) / (2 * F.eyeSpacing); // screen px per face unit
-    const angle = ((anchor.angle + F.faceAngle) * Math.PI) / 180 * flip + p.headRoll * 0.4;
+    const angle = (((upright ? 0 : anchor.angle) + F.faceAngle) * Math.PI) / 180 * flip + p.headRoll * 0.4;
     const head = new Mat().translate(hx + F.faceX * s * flip, hy + F.faceY * s).rotate(angle).scale(s * flip, s).translate(0, -F.eyeY);
     const fp = { ...p, headYaw: 0, turn: 0 };
     // seated: her whole face, but without the violet outline offset (it showed in front of her hair)

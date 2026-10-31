@@ -30,7 +30,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import actions, eyes, hands, life, reminders
+from . import action_text, actions, eyes, hands, life, reminders
 from .curiosity import Curiosity
 from .heart import Heart
 from .mind import Mind
@@ -157,7 +157,10 @@ PAST_ACTION = re.compile(r"\b(t'?as|tu as|t'avais|tu avais|did you|have you)\b.{
                          r"(ferm|ouvert|lanc|mis|coup|envoy|tap|fait|cliqu|[ée]crit|baiss|mont|close|open|launch|sent|typed)", re.I)
 STOP = re.compile(r"^\W*(capri\W*)?(stop|tais[- ]toi|chut|silence|arr[eê]te)\W*$", re.I)
 # Il lui coupe la parole d'un mot : « attends », « non non », « minute »… (pas besoin de dire « Capri »)
-INTERJECT = re.compile(r"\b(attends?|attendez|non|minute|stop|chut|wait|hold on|hang on|no)\b", re.I)
+# (en tout début de phrase seulement : « d'ailleurs attends, Claude… » ne s'adressait pas à elle)
+INTERJECT_START = re.compile(r"^\W*(?:\w+\W+)?(attends?|attendez|non|minute|stop|chut|wait|hold on|hang on|no)\b", re.I)
+# il parle à un autre assistant (Claude, ChatGPT…) ou à quelqu'un d'autre : sans « Capri », ce n'est pas pour elle
+OTHER_ADDRESSEE = re.compile(r"\b(claude|cloud|clode|chat ?gpt|gpt|alexa|siri|cortana|gemini|copilot|ok google|hey google)\b", re.I)
 # Messages qui n'ont pas besoin de ses souvenirs (« ok », « merci », « ça va ? ») : pas de recherche
 TRIVIAL = re.compile(r"^\W*(capri\W*)?(ok(ay)?|oui|non|ouais|merci|cool|super|d'accord|ça va\W*|salut|coucou|bonjour|bonsoir|"
                      r"hey|yo|lol|mdr|haha\w*|yes|no|thanks?|hi|hello|bye|à plus|bonne nuit|good night)\W*$", re.I)
@@ -479,7 +482,11 @@ class Capri:
                 note = actions.nothing_done(asked=False)  # il parlait du PC sans rien demander : qu'elle ne s'invente pas d'action
             if cancelled:
                 note = (note + "\n" if note else "") + cancelled
-            question = {"role": "user", "content": f"{text}\n\n{note}" if note else text}
+            # ses notes internes sont en français : juste avant de répondre, on lui rappelle la langue (sinon, après une
+            # note, elle répondait en français au milieu d'une conversation en anglais)
+            lang_line = "[LANGUAGE] Reply in English only: not a single word of French." if self.voice_cfg.get("langue", "en") == "en" else ""
+            extra = "\n".join(x for x in (note, lang_line) if x)
+            question = {"role": "user", "content": f"{text}\n\n{extra}" if extra else text}
             if image:
                 question["images"] = [image]
             messages.append(question)
@@ -928,7 +935,10 @@ class Capri:
                  "ok": not result.startswith(("ÉCHEC", "REFUSÉ"))}
         self.heart.feel("action_reussie" if entry["ok"] else "action_ratee", 0.5)
         self.action_log.append(entry)
-        await self.broadcast({"type": "action", **entry})
+        shown = entry
+        if self.voice_cfg.get("langue", "en") == "en":  # ce que ses mains ont fait, affiché en anglais
+            shown = {**entry, "result": action_text.english(entry["result"])}
+        await self.broadcast({"type": "action", **shown})
         try:
             with (DATA / "actions.jsonl").open("a", encoding="utf-8") as f:
                 f.write(json.dumps({k: entry[k] for k in ("ts", "name", "ok", "result")} | {"args": {
@@ -1076,13 +1086,15 @@ class Capri:
             return await ignore("rien")
         was_speaking = was_speaking or self.voice.is_speaking()
         wake = self.voice.has_wake_word(text)
+        if not wake and OTHER_ADDRESSEE.search(text):
+            return await ignore("il parle à quelqu'un d'autre")
         if was_speaking and not wake:
             # sa propre voix captée par le micro (les mots qu'elle vient de dire) : on l'ignore
             if self.voice.is_echo(text):
                 return await ignore("écho de sa voix")
             # sinon c'est lui qui lui coupe la parole (« attends », « non, plutôt… », une autre question)
             short = len(re.findall(r"\w+", text)) < 3
-            if not self.voice_cfg.get("barge_in", True) or (short and not INTERJECT.search(text)):
+            if not self.voice_cfg.get("barge_in", True) or (short and not INTERJECT_START.search(text)):
                 return await ignore("bruit pendant qu'elle parle")
         if client:
             client.ducked = False

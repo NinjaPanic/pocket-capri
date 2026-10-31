@@ -18,7 +18,6 @@ const RIG = rigData as unknown as { frameW: number; frameH: number; joints: Reco
 export const BONE_NAMES = RIG.bones.map((b) => b.name);
 export type Pose = Record<string, number>;
 const LAYER_ORDER = ['violet', 'hair', 'crimson', 'ink', 'green'];
-const OUTLINED = new Set(['upperArmR', 'forearmR', 'handR']);
 const deg = (r: number) => (r * 180) / Math.PI;
 
 export class Rig {
@@ -51,7 +50,8 @@ export class Rig {
     for (const b of RIG.bones) {
       const parent = b.parent ? this.world.get(b.parent)! : new Mat();
       const [px, py] = b.pivot;
-      let local = new Mat().translate(px, py).rotate(((pose[b.name] ?? 0) * Math.PI) / 180);
+      // sa tête un peu à gauche de son corps (ses cheveux suivent)
+      let local = new Mat().translate(px + (b.name === 'head' ? HEAD_SHIFT : 0), py).rotate(((pose[b.name] ?? 0) * Math.PI) / 180);
       // a bigger head (and the hair with it), grown around the neck
       if (b.name === 'head' && headScale !== 1) local = local.scale(headScale);
       const k = stretch[b.name];
@@ -65,7 +65,7 @@ export class Rig {
   }
 
   /** Draw every piece in depth order; ctx must already map sprite px to the screen. */
-  draw(ctx: CanvasRenderingContext2D, pose: Pose, stretch: Pose, colour: Record<string, string>, paintHair: (p: Path2D) => void, outlineArm = false, headScale = 1) {
+  draw(ctx: CanvasRenderingContext2D, pose: Pose, stretch: Pose, colour: Record<string, string>, paintHair: (p: Path2D) => void, headScale = 1) {
     this.solve(pose, stretch, headScale);
     for (const b of [...RIG.bones].sort((a, c) => a.z - c.z)) {
       const m = this.world.get(b.name)!;
@@ -77,10 +77,7 @@ export class Rig {
         if (!path) continue;
         if (cls === 'hair') { paintHair(path); continue; }
         ctx.fillStyle = colour[cls];
-        ctx.fill(path, 'evenodd');
-        // raised in front of the pink hair, the pink arm gets a thin ink edge so it still reads (never at rest:
-        // there it only drew black seams across the arm)
-        if (outlineArm && cls === 'crimson' && OUTLINED.has(b.name)) { ctx.strokeStyle = colour.ink; ctx.lineWidth = 0.9; ctx.lineJoin = 'round'; ctx.stroke(path); }
+        ctx.fill(path, 'evenodd'); // (plus de liseré noir sur le bras rose levé : il dessinait des bordures noires sales)
       }
       ctx.restore();
     }
@@ -159,6 +156,9 @@ export function hairPainter(ctx: CanvasRenderingContext2D, colour: string, t: nu
 
 const HEAD_ANCHOR = (faceData as unknown as { idle: { faces: { x: number; y: number; angle: number; dist: number }[] } }).idle.faces[0];
 export const POSE_KEY = (bone: string) => `p_${bone}` as const;
+/** Sa tête, décalée vers la gauche de son corps (px du dessin), et ses cheveux tournés vers la gauche (degrés) : sur le
+ *  dessin d'origine, sa crinière part trop à droite. */
+export const HEAD_SHIFT = -6, HAIR_TURN = -28;
 
 /**
  * Draw the whole rigged Capri: body pieces posed from the behaviour params plus the editor's base pose,
@@ -182,7 +182,7 @@ export function drawRigged(ctx: CanvasRenderingContext2D, rig: Rig, base0: Mat, 
   ctx.save();
   ctx.transform(base.a, base.b, base.c, base.d, base.e, base.f);
   const paint = hairPainter(ctx, F.hairColor, t, rig.frameW, rig.frameH);
-  rig.draw(ctx, pose, stretch, colour, paint, p.armRRaise > 0.35 || p.armSpread > 0.4, F.headScale ?? 1);
+  rig.draw(ctx, pose, stretch, colour, paint, F.headScale ?? 1);
   ctx.restore();
 
   // the face rides the head bone
@@ -226,7 +226,7 @@ export function poseFromParams(p: Params, t: number, base: Pose): { pose: Pose; 
   // visage bien droit et de face (ses cheveux suivent la tête)
   add('head', -HEAD_ANCHOR.angle + deg(p.headRoll) * 0.9 + p.headPitch * 8);
   // hair: sways, streams behind a dash
-  add('hair', drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
+  add('hair', HAIR_TURN + drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
   // black arm (left of screen): raise lifts it over the head, spread flings it out
   // au repos, le dessin d'origine tient ce bras écarté : on le ramène le long du corps comme l'autre
   // (−30°), et le lever part de là (125° au lieu de 95° pour arriver au même endroit)

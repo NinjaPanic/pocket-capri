@@ -1684,7 +1684,6 @@
   var RIG = rig_default;
   var BONE_NAMES = RIG.bones.map((b) => b.name);
   var LAYER_ORDER = ["violet", "hair", "crimson", "ink", "green"];
-  var OUTLINED = /* @__PURE__ */ new Set(["upperArmR", "forearmR", "handR"]);
   var deg = (r) => r * 180 / Math.PI;
   var Rig = class {
     frameW = RIG.frameW;
@@ -1714,7 +1713,7 @@
       for (const b of RIG.bones) {
         const parent = b.parent ? this.world.get(b.parent) : new Mat();
         const [px, py] = b.pivot;
-        let local = new Mat().translate(px, py).rotate((pose[b.name] ?? 0) * Math.PI / 180);
+        let local = new Mat().translate(px + (b.name === "head" ? HEAD_SHIFT : 0), py).rotate((pose[b.name] ?? 0) * Math.PI / 180);
         if (b.name === "head" && headScale !== 1) local = local.scale(headScale);
         const k = stretch[b.name];
         if (k !== void 0 && k !== 1) {
@@ -1725,7 +1724,7 @@
       }
     }
     /** Draw every piece in depth order; ctx must already map sprite px to the screen. */
-    draw(ctx2, pose, stretch, colour, paintHair, outlineArm = false, headScale = 1) {
+    draw(ctx2, pose, stretch, colour, paintHair, headScale = 1) {
       this.solve(pose, stretch, headScale);
       for (const b of [...RIG.bones].sort((a, c) => a.z - c.z)) {
         const m = this.world.get(b.name);
@@ -1741,12 +1740,6 @@
           }
           ctx2.fillStyle = colour[cls];
           ctx2.fill(path, "evenodd");
-          if (outlineArm && cls === "crimson" && OUTLINED.has(b.name)) {
-            ctx2.strokeStyle = colour.ink;
-            ctx2.lineWidth = 0.9;
-            ctx2.lineJoin = "round";
-            ctx2.stroke(path);
-          }
         }
         ctx2.restore();
       }
@@ -1829,6 +1822,8 @@
   }
   var HEAD_ANCHOR = faces_default.idle.faces[0];
   var POSE_KEY = (bone) => `p_${bone}`;
+  var HEAD_SHIFT = -6;
+  var HAIR_TURN = -28;
   function drawRigged(ctx2, rig2, base0, flip, p, t, F, debug) {
     const basePose = {};
     for (const name of BONE_NAMES) basePose[name] = F[POSE_KEY(name)] ?? 0;
@@ -1843,7 +1838,7 @@
     ctx2.save();
     ctx2.transform(base.a, base.b, base.c, base.d, base.e, base.f);
     const paint = hairPainter(ctx2, F.hairColor, t, rig2.frameW, rig2.frameH);
-    rig2.draw(ctx2, pose, stretch, colour, paint, p.armRRaise > 0.35 || p.armSpread > 0.4, F.headScale ?? 1);
+    rig2.draw(ctx2, pose, stretch, colour, paint, F.headScale ?? 1);
     ctx2.restore();
     const a = HEAD_ANCHOR;
     const at = rig2.place("head", a.x, a.y);
@@ -1874,8 +1869,8 @@
       pose[k] = (pose[k] ?? 0) + v;
     };
     add("torso", deg(p.bodyRot) * 0.8 + deg(p.lean) * 0.7 + (p.breathe - 0.5) * 1.2);
-    add("head", deg(p.headRoll) * 0.9 + p.headPitch * 8);
-    add("hair", drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
+    add("head", -HEAD_ANCHOR.angle + deg(p.headRoll) * 0.9 + p.headPitch * 8);
+    add("hair", HAIR_TURN + drift(t * 0.19, 31) * (1.2 + p.hairWind * 3) - p.hairStream * 12);
     add("upperArmL", ARM_L_REST + p.armLRaise * 125 + p.armSpread * 60 + drift(t * 0.14, 32) * 1.5);
     add("forearmL", p.armLRaise * 35 - p.armSpread * 10);
     add("handL", p.armLRaise * 10);
