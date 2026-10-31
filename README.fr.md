@@ -23,9 +23,21 @@ Gratuit, et tout peut tourner sur ton PC (sauf si tu choisis un service en ligne
 - **Elle pilote ton PC.** Ouvrir/fermer des programmes, chercher sur le web, régler le son, contrôler Spotify,
   Discord (micro, sourdine), le navigateur, cliquer, taper… avec une bordure lumineuse et la touche Échap pour
   l'arrêter. Envoyer, acheter, supprimer : elle demande toujours d'abord.
-- **Elle bouge sur le bureau.** Elle marche sur la barre des tâches, s'assoit sur le haut des fenêtres, vole, fait
-  des vrilles, se téléporte.
-- **Un hub** (style néon) : discussion, mémoire, journal des actions, éditeur de visage, réglages (voix, langue
+- **Elle répond vite.** Ta phrase est transcrite pendant tes pauses, sa voix démarre avant la fin de la synthèse,
+  et tu peux lui couper la parole sans dire « Capri » (sa voix baisse dès que tu parles).
+- **Elle a un cœur et une tête.** 13 émotions qui ont toujours une cause et retombent doucement, une relation qui
+  évolue (familiarité, confiance, complicité…), des avis à elle qu'elle garde ou change en s'en souvenant, des envies,
+  des projets personnels sur plusieurs jours, une curiosité qui explore Wikipédia. Elle sait qu'elle est une IA et
+  se pose de vraies questions sur ce qu'elle est. Quand elle ne sait pas, elle le dit.
+- **Elle réagit au PC.** Jeu lancé (elle se fait discrète et libère la carte graphique) ou fermé (elle demande
+  comment c'était), réseau coupé, clé USB, processeur qui chauffe, longue session sans pause, mode nuit.
+- **Rappels à la voix** : « rappelle-moi dans 20 minutes… », « tous les jours à 9 h… », report, annulation.
+- **Elle te montre des choses** : « où est le bouton paramètres ? » → elle vole jusque-là et le désigne.
+- **Elle bouge sur le bureau.** Elle marche sur la barre des tâches, s'assoit sur le haut des fenêtres et les suit
+  quand tu les déplaces, tombe quand elles se ferment (et se rattrape à une autre), se lance, rebondit, s'accroche
+  à l'envers au plafond, vole, se téléporte, et vit parfois de petites scènes rares.
+- **Un hub** (style néon) : discussion, mémoire (modifiable), votre histoire, ses émotions et ses avis, ses
+  découvertes, rappels, journal des actions, éditeur de visage, réglages (bavarde ou discrète, sarcasme, jalousie, voix, langue
   **français / anglais**, cerveau local ou en ligne avec ta clé : Gemini, OpenAI, Claude, Grok, Groq, Mistral…).
 
 ## Ce qu'il te faut

@@ -22,8 +22,21 @@ Free, and everything can run on your own PC (unless you choose an online service
 - **Drives your PC.** Opens and closes apps, searches the web, sets the volume, controls Spotify, Discord
   (mute, deafen) and your browser, clicks and types — with a glowing border and the Esc key to stop her.
   Sending, buying or deleting: she always asks first.
-- **Moves around your desktop.** Walks on the taskbar, sits on top of windows, flies, spins, teleports.
-- **A neon hub**: chat, memory, action log, face editor, settings (voice, **English / French**, local brain or
+- **Answers fast.** Your sentence is transcribed during your pauses, her voice starts before synthesis ends, and
+  you can interrupt her without saying "Capri" (her voice dips as soon as you speak).
+- **Has a heart and a mind.** 13 emotions that always have a cause and slowly settle, a relationship that grows
+  (familiarity, trust, closeness…), opinions of her own that she keeps or changes and remembers changing, wishes,
+  multi-day personal projects, curiosity that explores Wikipedia. She knows she is an AI and genuinely wonders what
+  she is. When she doesn't know, she says so.
+- **Reacts to your PC.** Game started (she keeps quiet and frees the graphics card) or closed (she asks how it
+  went), network lost, USB drive, hot CPU, long session without a break, night mode.
+- **Voice reminders**: "remind me in 20 minutes…", "every day at 9…", snooze, cancel.
+- **Shows you things**: "where's the settings button?" → she flies there and points at it.
+- **Moves around your desktop.** Walks on the taskbar, sits on top of windows and rides them when you drag them,
+  falls when they close (and catches another one), can be thrown and bounces, hangs upside down from the top of
+  the screen, flies, teleports, and now and then plays a rare little scene.
+- **A neon hub**: chat, memory (editable), your shared story, her feelings and opinions, her discoveries,
+  reminders, action log, face editor, settings (chatty or quiet, sarcasm, jealousy, voice, **English / French**, local brain or
   your own API key for Gemini, OpenAI, Claude, Grok, Groq, Mistral, OpenRouter, DeepSeek).
 
 ## Requirements

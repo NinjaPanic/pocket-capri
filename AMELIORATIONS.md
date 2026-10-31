@@ -245,6 +245,19 @@ fréquence de ses venues inchangée par défaut et réglable dans le hub.
 * **Actions guidées** : « où est le bouton paramètres dans Discord ? », « montre-moi Spotify » → elle vole jusqu'à
   l'élément ou la fenêtre, se tourne vers lui, le désigne du bras, et un halo néon l'entoure 4 s. Rien n'est cliqué.
 
+### 2.9 Bulle, traduction, batterie de conversations
+
+* **Bulle de dialogue** dans sa propre fenêtre : à sa taille, au-dessus de sa tête (en dessous au plafond ou près du
+  haut), toujours entière dans l'écran, elle la suit. Vérifié à l'écran.
+* **Anglais** : tout ce qui a été ajouté (émotions, relation, chronologie, voix, menus, bulles) suit la langue.
+* **Batterie de 22 conversations** (`brain/tools/test_conversation.py`, sur une copie, sans action sur le PC),
+  lancée trois fois. Corrigé grâce à elle : tics de mots (« glitch-musique » : 13 → 5 mentions), faux souvenir d'une
+  date (elle relit maintenant ce qui a vraiment été dit ce jour-là), « t'as fermé Spotify ? » → elle consulte son
+  vrai journal d'actions (« Non… j'ai rien fait du tout »), une confirmation en attente qui avalait le message
+  suivant (le rappel n'était pas créé), ses faits réels donnés quand tu parles d'éteindre le PC.
+  **Encore faible** (limite du modèle 8B) : « quelle fonctionnalité tu voudrais ? » donne des idées floues, et sur
+  « quand j'éteins le PC » elle reste poétique plutôt que lucide.
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)
