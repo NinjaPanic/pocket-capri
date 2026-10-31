@@ -1,0 +1,191 @@
+{
+ "taille": [
+  1111,
+  2000
+ ],
+ "pieces": {
+  "buste": {
+   "os": "torso",
+   "pivot": [
+    577,
+    1092
+   ]
+  },
+  "bras-noir-haut": {
+   "os": "upperArmL",
+   "pivot": [
+    527,
+    786
+   ]
+  },
+  "avant-bras-noir": {
+   "os": "forearmL",
+   "pivot": [
+    474,
+    975
+   ]
+  },
+  "main-noire": {
+   "os": "handL",
+   "pivot": [
+    430,
+    1182
+   ]
+  },
+  "bras-rose-haut": {
+   "os": "upperArmR",
+   "pivot": [
+    660,
+    786
+   ]
+  },
+  "avant-bras-rose": {
+   "os": "forearmR",
+   "pivot": [
+    710,
+    988
+   ]
+  },
+  "main-rose": {
+   "os": "handR",
+   "pivot": [
+    746,
+    1222
+   ]
+  },
+  "cuisse-gauche": {
+   "os": "thighL",
+   "pivot": [
+    533,
+    1112
+   ]
+  },
+  "jambe-gauche-bas": {
+   "os": "shinL",
+   "pivot": [
+    545,
+    1495
+   ]
+  },
+  "pied-gauche": {
+   "os": "footL",
+   "pivot": [
+    566,
+    1790
+   ]
+  },
+  "cuisse-droite": {
+   "os": "thighR",
+   "pivot": [
+    628,
+    1130
+   ]
+  },
+  "jambe-droite-bas": {
+   "os": "shinR",
+   "pivot": [
+    690,
+    1480
+   ]
+  },
+  "pied-droit": {
+   "os": "footR",
+   "pivot": [
+    716,
+    1790
+   ]
+  },
+  "cheveux": {
+   "os": "hair",
+   "pivot": [
+    600,
+    560
+   ]
+  },
+  "tete": {
+   "os": "head",
+   "pivot": [
+    585,
+    742
+   ]
+  }
+ },
+ "articulations": {
+  "cou": [
+   585,
+   742
+  ],
+  "bassin": [
+   577,
+   1092
+  ],
+  "sommet": [
+   600,
+   560
+  ],
+  "epauleL": [
+   527,
+   786
+  ],
+  "coudeL": [
+   474,
+   975
+  ],
+  "poignetL": [
+   430,
+   1182
+  ],
+  "mainL": [
+   398,
+   1330
+  ],
+  "epauleR": [
+   660,
+   786
+  ],
+  "coudeR": [
+   710,
+   988
+  ],
+  "poignetR": [
+   746,
+   1222
+  ],
+  "mainR": [
+   772,
+   1345
+  ],
+  "hancheL": [
+   533,
+   1112
+  ],
+  "genouL": [
+   545,
+   1495
+  ],
+  "chevilleL": [
+   566,
+   1790
+  ],
+  "piedL": [
+   548,
+   1925
+  ],
+  "hancheR": [
+   628,
+   1130
+  ],
+  "genouR": [
+   690,
+   1480
+  ],
+  "chevilleR": [
+   716,
+   1790
+  ],
+  "piedR": [
+   763,
+   1910
+  ]
+ }
+}

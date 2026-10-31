@@ -41,3 +41,13 @@ pièce à sa place, le reste transparent). Comme ça je n'ai rien à recaler.
 
 Dépose les fichiers dans ce dossier (`body/assets/rig-parts/`) et dis-le-moi : je refais son squelette à partir d'eux,
 puis je te montre une planche de poses avant de l'activer.
+
+## Le découpage fait (31 octobre)
+
+À partir de ton dessin de face (`source/capri-face.webp`), `tools/cut_parts.py` a produit les 15 pièces (`*.png`, toile
+entière 1111 × 2000, pièce à sa place), leurs pivots (`pivots.json`), la planche `pieces.png`, la vérification
+`verification.png` (chaque pièce en couleur avec le squelette) et `essai-pose.png` (bras levés, jambe pliée : rien ne
+s'ouvre). Remonter toutes les pièces redonne exactement le dessin (0 pixel manquant).
+
+Pour corriger une articulation, change ses coordonnées dans `J` en haut de `tools/cut_parts.py` et relance :
+`brain\.venv\Scripts\python -P body\tools\cut_parts.py`.
