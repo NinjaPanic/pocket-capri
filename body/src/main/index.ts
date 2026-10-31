@@ -955,12 +955,12 @@ async function farewell() {
   games?.stop();
   void showBubble(lang === 'en' ? 'See you soon…' : 'À plus tard…');
   cue({ type: 'farewell' });
-  // après son coucou, ses glyphes jaillissent sur tout l'écran et l'écran s'éteint comme une vieille télé
+  // son visage sur tout l'écran : « à plus », un clin d'œil, il se déchire, et l'écran s'éteint comme une vieille télé
   const b = charWin.getBounds();
   const scene = new Promise<void>((resolve) => setTimeout(() => {
     createScene(screen.getDisplayMatching(b).bounds, 'outro', { x: b.x + b.width / 2, y: b.y + b.height * 0.45 }, lang === 'en');
     setTimeout(resolve, SCENE_MS.outro);
-  }, 850));
+  }, 0));
   const her = new Promise<void>((resolve) => { farewellDone = resolve; setTimeout(resolve, 2800); });
   await Promise.all([scene, her]);
   farewellDone = null;

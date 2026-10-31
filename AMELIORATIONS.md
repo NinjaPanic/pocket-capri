@@ -355,6 +355,11 @@ glyphes tombe partout puis est aspirée en spirale vers sa place ; éclair, onde
 LIGNE », et elle s'y construit. Au départ, après son coucou, ses glyphes jaillissent sur tout l'écran, puis l'écran
 entier s'éteint comme une vieille télé (volets noirs, ligne blanche, point, « SIGNAL PERDU ») avant que le bureau
 revienne. Inspiré de l'idée d'une entrée plein écran, mais une mise en scène à elle.
+Ensuite, à ta demande, **son visage sur tout l'écran** : à l'arrivée, son visage géant (le même dessin vectoriel que sur
+le bureau, avec tes réglages de l'éditeur, et sa crinière rose pailletée) se recolle, yeux fermés ; ils s'ouvrent d'un
+coup sur ta souris, grand sourire, « salut », tête penchée, puis le visage se défait en glyphes aspirés vers sa place.
+Au départ, son visage revient, te regarde, « à plus », clin d'œil, ferme les yeux et se déchire avant que l'écran
+s'éteigne.
 
 **Quota en ligne** : le passage au modèle local quand le quota est plein vaut pour tous les services en ligne (Groq,
 Gemini, OpenAI, Anthropic, Mistral, xAI, DeepSeek, OpenRouter), et aussi quand il n'y a plus de crédit (erreur 402).
