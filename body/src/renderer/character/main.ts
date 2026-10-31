@@ -58,6 +58,8 @@ let dragging = false;
 let forced: Partial<Params> | null = null;
 let surface: Surface = 'taskbar';
 let dashing = 0; // pose override for previews/tests only
+let copiesT = 0; const COPIES_DUR = 3.4; // ses copies rouge et verte (0 = pas en cours)
+const copyCanvas = document.createElement('canvas'), copyCtx = copyCanvas.getContext('2d')!;
 let pointUntil = 0, pointDir = 1; // elle désigne quelque chose (actions guidées) : tournée de ce côté
 let flipAngle = 0, flipV = 0; // la tête en bas (au plafond) : angle de son corps, et sa vitesse
 
@@ -114,6 +116,8 @@ function onBrain(e: BrainEvent) {
     case 'hello': setMood(e.mood, false); if (e.face) setFaceConfig(e.face); night = !!e.night; setFeeling(e.feeling); english = e.langue !== 'fr'; shareSettings(); break;
     case 'feeling': setFeeling(e.emotion); break;
     case 'point': if (!dragging) { roamer.halt(15_000); void api.invoke('char:point', { x: e.x, y: e.y, w: e.w, h: e.h }).catch(() => undefined); } break;
+    case 'copies': if (settings?.character.glitchEffects && !night) copiesT = 0.001; break;
+    case 'possession': if (settings?.character.glitchEffects && !night) void api.invoke('char:possess').catch(() => undefined); break;
     case 'glitch': if (settings?.character.glitchEffects && !night) model.glitchNow('slice', 0.9); break;
     case 'night': night = e.on; break;
     case 'notice': // une réaction à ce qui se passe sur le PC : un geste et une petite bulle, sans rien interrompre
@@ -299,6 +303,32 @@ function tick(dt: number) {
     model.post(ctx, off, Math.max(0.3, model.burst * 0.9));
   }
   if (teleporting) fx.render(ctx, off, dt, dpr);
+  // ses copies : une rouge à gauche, une verte à droite, qui se détachent (avec un léger retard l'une sur l'autre),
+  // tremblent un peu, puis reviennent se fondre en elle
+  if (copiesT > 0) {
+    copiesT += dt;
+    const u = Math.min(1, copiesT / COPIES_DUR);
+    if (u >= 1) copiesT = 0;
+    else {
+      if (copyCanvas.width !== canvas.width || copyCanvas.height !== canvas.height) { copyCanvas.width = canvas.width; copyCanvas.height = canvas.height; }
+      copyCtx.clearRect(0, 0, copyCanvas.width, copyCanvas.height);
+      copyCtx.drawImage(canvas, 0, 0);
+      const ease = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x));
+      const out = (d: number) => ease((u - d) / 0.3) * (1 - ease((u - 0.68 - d) / 0.28));
+      const jitter = () => (Math.random() - 0.5) * 3 * dpr;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'destination-over';
+      for (const [dir, filter, delay] of [[-1, 'brightness(1.3) sepia(1) saturate(16) hue-rotate(-38deg)', 0], [1, 'sepia(1) saturate(9) hue-rotate(75deg) brightness(1.15)', 0.06]] as const) {
+        const k = out(delay);
+        if (k <= 0) continue;
+        ctx.globalAlpha = 0.7 * k;
+        ctx.filter = filter;
+        ctx.drawImage(copyCanvas, dir * k * canvas.width * 0.2 + jitter(), jitter() + (dir < 0 ? -1 : 1) * k * 4 * dpr);
+      }
+      ctx.restore();
+    }
+  }
   else if (momentum.pos) ghosts.update(ctx, canvas, dt, momentum.pos, momentum.speed, dpr);
 }
 
@@ -475,6 +505,7 @@ function shareSettings() {
     face: () => getFaceConfig(),
     setFace: (c: Record<string, unknown>) => setFaceConfig(c),
     setWorkPose(p: 'back' | 'crouch' | 'sit' | null) { workPose = p; },
+    copies() { copiesT = 0.001; },
     hitAt: (x: number, y: number) => model.hitTest(ctx, x, y, dpr),
     // ---- deterministic capture mode (trailer / docs): stop the clock, advance exact frames, export pixels
     manual(on: boolean) { if (on) { cancelAnimationFrame(raf); paused = true; } else { paused = false; last = performance.now(); raf = requestAnimationFrame(loop); } },

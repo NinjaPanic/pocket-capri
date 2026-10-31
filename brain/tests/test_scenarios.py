@@ -46,7 +46,7 @@ class ScenesTest(unittest.TestCase):
     def test_steps_are_valid(self):
         for name, scene in scenarios.SCENES.items():
             for step in scene["steps"]:
-                self.assertIn(step[0], {"glitch", "geste", "pause", "dit", "demande", "voler"}, name)
+                self.assertIn(step[0], {"glitch", "geste", "pause", "dit", "demande", "voler", "effet"}, name)
                 if step[0] in ("dit", "demande"):
                     step[1].format(**CTX)  # aucune variable manquante
 

@@ -34,7 +34,7 @@ from . import actions, eyes, hands, life, reminders
 from .curiosity import Curiosity
 from .heart import Heart
 from .mind import Mind
-from . import scenarios, selfmodel
+from . import knowing, scenarios, selfmodel
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
 from .memory import Memory
@@ -465,7 +465,11 @@ class Capri:
             wants_long = re.search(r"\b(explique|détaille|liste|code|programme|étapes|tuto|résume|écris[- ]moi|raconte)", text, re.I)
             # bavarde : elle relance plus souvent la conversation et parle un peu plus longtemps
             chatty = self._chatty()
-            gate = QuestionGate("?" not in last[-80:] and random.random() < 0.15 + 0.4 * chatty,
+            ask_ok = "?" not in last[-80:] and random.random() < 0.15 + 0.4 * chatty
+            if ask_ok and not wants_long and not note:
+                messages[-2]["content"] += knowing.hint([m["content"] for m in self.memory.list_memories()], self.name,
+                                                        self.inner.state.setdefault("asked_about", {}))
+            gate = QuestionGate(ask_ok,
                                 max_sentences=0 if wants_long else round(3 + 4 * chatty) if spoken else 7,
                                 already_said=self._recent_replies(8))
             self.turn.mark("contexte")
@@ -1321,6 +1325,8 @@ class Capri:
                     await self.broadcast({"type": "notice", "emote": step[1], "text": step[3] if english else step[2]})
                 elif kind == "pause":
                     await asyncio.sleep(step[1])
+                elif kind == "effet":
+                    await self.broadcast({"type": step[1]})  # copies, possession : effets de l'avatar
                 elif kind == "voler":
                     await self.broadcast({"type": "emote", "name": "sit"})
                 elif kind in ("dit", "demande"):
@@ -1528,6 +1534,14 @@ class Capri:
             choices += ["reading", "reading"]
         if any(p["status"] == "terminé" and not p.get("shared") for p in self.inner.state.get("projects", [])):
             choices += ["project"] * 3
+        # elle a envie de le connaître : plus elle sait peu de choses de lui, plus elle vient lui en demander
+        memories_txt = [m["content"] for m in self.memory.list_memories()]
+        missing = knowing.unknown(memories_txt, self.name, self.inner.state.setdefault("asked_about", {}))
+        if missing and random.random() < min(0.5, 0.12 + 0.03 * len(missing)):
+            key, prompt = knowing.pick_question(memories_txt, self.name, self.inner.state["asked_about"])
+            self.inner.state["asked_about"][key] = time.time()
+            self.inner.save()
+            return prompt
         thought = self.inner.state.get("introspection")
         if thought and not thought["shared"] and time.time() - thought["ts"] < 86400 and random.random() < 0.3:
             thought["shared"] = True

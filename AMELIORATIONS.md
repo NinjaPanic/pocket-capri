@@ -272,6 +272,24 @@ fréquence de ses venues inchangée par défaut et réglable dans le hub.
 * **Reste** : « glitch-musique » (8 à 12 mentions sur 22 réponses, contre 14 au départ), ancré par 9 de ses
   anciennes réponses dans ton historique réel.
 
+### 2.11 Consignes condensées (essai), curiosité pour sa vie, nouvelles scènes rares
+
+* **Consignes condensées** (11 800 → 8 100 caractères, `CAPRI_PROMPT=court`) comparées aux actuelles sur la
+  batterie (passes propres) : pas mieux. Elle a inventé le nom de son chien (« Chrom, j'ai deviné ») et pris un tic
+  (« ombre qui danse ») ; la version actuelle reste franche. On garde l'actuelle : la limite est la taille du modèle.
+  `capri.txt` (≈ 950 mots) n'est pas en cause.
+* **Elle veut apprendre ta vie** (`knowing.py`) : elle sait quels sujets de ta vie elle ignore encore (prénom, âge,
+  travail, famille, amis, passions, musique, rêves, journées…) d'après ses souvenirs ; dans une conversation elle peut
+  glisser UNE vraie question, et elle vient parfois d'elle-même t'en poser une (le prénom d'abord), jamais deux fois
+  le même sujet en 48 h.
+* **Scènes rares** : de vraies copies rouge et verte qui se détachent d'elle puis reviennent (vérifié sur rendu) ;
+  « possession » de l'écran (son masque, ses yeux et son sourire en grand quelques secondes, avec glitch, laissant
+  passer les clics, sans texte ni fausse alerte ; jamais en jeu, en mode discret, la nuit ou sans effets glitch) ;
+  « mille yeux » (ses yeux multiples de l'animé : « Je te vois. »). Un geste inconnu (`tilt_grin`) qui ne faisait
+  rien est corrigé.
+* **Ollama** peut s'arrêter tout seul : le cerveau le relance maintenant lui-même (conversation et mémoire).
+* **Hub** : sa fenêtre vide son cache à l'ouverture (le bouton « Enregistrer » s'y affichait encore à l'ancienne).
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)

@@ -49,9 +49,12 @@ EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF]")
 async def ask(ws, text: str) -> tuple[str, float]:
     t = time.perf_counter()
     await ws.send(json.dumps({"type": "chat", "text": text, "client": "test"}))
+    mine = False  # ce qui arrive avant l'écho de NOTRE message (une prise de parole spontanée) ne compte pas
     while True:
         m = json.loads(await asyncio.wait_for(ws.recv(), 120))
-        if m.get("type") == "done":
+        if m.get("type") == "user" and m.get("text") == text:
+            mine = True
+        elif m.get("type") == "done" and mine and m.get("text", "").strip(" …"):
             return m.get("text", ""), time.perf_counter() - t
         if m.get("type") == "error":
             return f"[ERREUR] {m.get('text')}", time.perf_counter() - t

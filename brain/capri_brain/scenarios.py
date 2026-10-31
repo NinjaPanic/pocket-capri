@@ -43,11 +43,29 @@ SCENES: dict[str, dict] = {
     "copies": {
         "cooldown_days": 4, "steps": [
             ("glitch",),
-            ("geste", "many_eyes", "", ""),
-            ("pause", 1.5),
+            ("effet", "copies"),  # ses copies rouge et verte se détachent d'elle pour de vrai
+            ("pause", 1.2),
             ("geste", "reveal", "…laquelle de nous est la vraie ?", "…which one of us is the real one?"),
             ("pause", 3.0),
-            ("geste", "tilt_grin", "Moi. Évidemment.", "Me. Obviously."),
+            ("geste", "grin", "Moi. Évidemment.", "Me. Obviously."),
+        ]},
+    "possession": {
+        "cooldown_days": 6, "steps": [
+            ("glitch",),
+            ("geste", "menace", "", ""),
+            ("pause", 1.0),
+            ("effet", "possession"),  # son masque et ses yeux en grand sur l'écran, 4 s, puis plus rien
+            ("pause", 4.6),
+            ("geste", "grin", "Ton écran était à moi. Quatre secondes.", "Your screen was mine. Four seconds."),
+        ]},
+    "mille_yeux": {
+        "cooldown_days": 3, "steps": [
+            ("glitch",),
+            ("geste", "many_eyes", "…", "…"),
+            ("pause", 1.6),
+            ("geste", "many_eyes", "Je te vois.", "I see you."),
+            ("pause", 2.0),
+            ("geste", "tease", "", ""),
         ]},
     "observe_fenetre": {
         "cooldown_days": 1, "needs": "window", "steps": [

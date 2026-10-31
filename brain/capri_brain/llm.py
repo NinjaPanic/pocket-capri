@@ -165,7 +165,7 @@ class LLM:
     async def complete(self, messages: list[dict], **kwargs) -> str:
         return "".join([piece async for piece in self.stream(messages, **kwargs)])
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], _retry: bool = True) -> list[list[float]]:
         try:
             r = await self.http.post(
                 f"{self.ollama_url}/api/embed",
@@ -173,6 +173,11 @@ class LLM:
                 json={"model": self.embed_model, "input": texts, "keep_alive": "4h",  # petit, en mémoire vive
                       "options": {"num_gpu": 0}},
             )
+        except httpx.ConnectError as e:
+            # la mémoire passe toujours par Ollama (même quand elle pense en ligne) : on le relance s'il s'est arrêté
+            if _retry and await self.revive_ollama(force=True):
+                return await self.embed(texts, _retry=False)
+            raise LLMError(f"Ollama injoignable pour la mémoire ({e.__class__.__name__}).") from e
         except httpx.HTTPError as e:
             raise LLMError(f"Ollama injoignable pour la mémoire ({e.__class__.__name__}).") from e
         if r.status_code != 200:
@@ -211,6 +216,32 @@ class LLM:
             log.info("Modèle local retiré de la carte graphique")
         except httpx.HTTPError:
             pass
+
+    _revived_at = 0.0
+
+    async def revive_ollama(self, force: bool = False) -> bool:
+        """Relance Ollama (caché, avec les mêmes réglages que l'avatar : Flash Attention, cache compressé) s'il ne répond
+        plus. Au plus une fois par minute. Vrai s'il répond de nouveau."""
+        if (self.provider != "ollama" and not force) or time.monotonic() - LLM._revived_at < 60:
+            return False
+        LLM._revived_at = time.monotonic()
+        exe = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")
+        if not os.path.exists(exe):
+            return False
+        import subprocess
+        log.warning("Ollama ne répond plus : relance")
+        subprocess.Popen([exe, "serve"], creationflags=0x08000000 | 0x00000008,  # sans fenêtre, détaché
+                         env={**os.environ, "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0"},
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(30):
+            await asyncio.sleep(0.5)
+            try:
+                if (await self.http.get(f"{self.ollama_url}/api/version", timeout=1)).status_code == 200:
+                    log.info("Ollama relancé")
+                    return True
+            except httpx.HTTPError:
+                pass
+        return False
 
     async def _gpu_pause(self, detail: str) -> None:
         log.warning("Ollama a planté sur la carte graphique (%s) : nouvel essai", detail[:120])
@@ -300,6 +331,9 @@ class LLM:
                 await self._gpu_pause(str(e))
                 continue
             except httpx.ConnectError as e:
+                # Ollama s'est arrêté (ça arrive) : on le relance nous-mêmes une fois, puis on réessaie
+                if attempt < 2 and await self.revive_ollama():
+                    continue
                 raise LLMError("Ollama ne répond pas. Il est bien installé et lancé ?") from e
             except httpx.HTTPError as e:
                 raise LLMError(f"Erreur réseau avec Ollama ({e.__class__.__name__}).") from e

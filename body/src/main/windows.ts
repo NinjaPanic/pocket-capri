@@ -140,7 +140,9 @@ export function createBrainChatWindow(near: Rectangle, log: Logger, page = '/'):
     setTimeout(() => { if (!win.isDestroyed()) void win.loadURL(url || BRAIN_HTTP + page); }, 1500);
     if (!win.isVisible()) reveal(win, true);
   });
-  void win.loadURL(BRAIN_HTTP + page);
+  // son cache HTTP gardait l'ancienne version du hub après une mise à jour (bouton qui dépassait encore) :
+  // on le vide à chaque ouverture, le hub est petit et servi en local
+  void win.webContents.session.clearCache().finally(() => { if (!win.isDestroyed()) void win.loadURL(BRAIN_HTTP + page); });
   win.once('ready-to-show', () => reveal(win, true));
   return win;
 }
@@ -227,6 +229,46 @@ window.say=(text,down)=>{document.getElementById('b').textContent=text;document.
 return Math.ceil(document.getElementById('w').getBoundingClientRect().height)+4};
 </script></body></html>`;
   void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  return win;
+}
+
+/**
+ * Scène rare « possession » : pendant quelques secondes son masque et ses yeux apparaissent en grand sur tout
+ * l'écran, avec des tranches de glitch et des lignes de balayage, puis s'effacent. Une pure illusion : la fenêtre
+ * laisse passer tous les clics, ne contient aucun texte et rien qui ressemble à une alerte système.
+ */
+export function createPossession(bounds: Rectangle): BrowserWindow {
+  const win = new BrowserWindow({
+    ...bounds, transparent: true, frame: false, resizable: false, movable: false, focusable: false, skipTaskbar: true,
+    hasShadow: false, show: false, alwaysOnTop: true, backgroundColor: '#00000000',
+    webPreferences: { offscreen: OFFSCREEN, contextIsolation: true, sandbox: true, nodeIntegration: false, javascript: false },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(true);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+.all{position:fixed;inset:0;animation:life 4.2s ease-in-out forwards;opacity:0}
+@keyframes life{0%{opacity:0}12%{opacity:.85}18%{opacity:.35}24%{opacity:.8}80%{opacity:.75}100%{opacity:0}}
+.scan{position:fixed;inset:0;background:repeating-linear-gradient(0deg,#22f27a10 0 2px,transparent 2px 5px);mix-blend-mode:screen}
+.tint{position:fixed;inset:0;background:radial-gradient(ellipse at center,#f2154c22,#05040a66 70%)}
+.mask{position:fixed;left:50%;top:44%;width:62vmin;height:22vmin;transform:translate(-50%,-50%) skewX(-4deg);background:#22f27a;
+  clip-path:polygon(4% 0,100% 6%,96% 100%,0 92%);box-shadow:0 0 60px #22f27a;animation:jit 0.35s steps(2) infinite;opacity:.9}
+.eye{position:fixed;top:44%;width:13vmin;height:13vmin;border-radius:50%;transform:translate(-50%,-50%);
+  background:radial-gradient(circle,#fff 0 9%,#1d6cff 10% 38%,#0a0715 39% 46%,#1d6cff 47% 58%,#0a0715 59% 100%);
+  box-shadow:0 0 40px #1d6cff;animation:look 4.2s ease-in-out forwards}
+.l{left:41%}.r{left:59%}
+.grin{position:fixed;left:50%;top:58%;width:20vmin;height:5vmin;transform:translateX(-50%);background:#f4f4f8;box-shadow:0 0 30px #fff8;
+  clip-path:polygon(0 0,100% 0,88% 60%,76% 15%,64% 100%,52% 20%,40% 100%,28% 15%,14% 70%);animation:jit 0.5s steps(2) infinite}
+.slice{position:fixed;left:0;right:0;height:3vh;background:#ff3d8b33;mix-blend-mode:screen;animation:slide .6s steps(3) infinite}
+.s1{top:20%}.s2{top:63%;animation-delay:-.2s;background:#22f27a2b}.s3{top:80%;animation-delay:-.4s}
+@keyframes jit{50%{transform:translate(calc(-50% + 6px),-50%) skewX(-4deg)}}
+@keyframes look{0%,30%{margin-left:0}45%{margin-left:-2vmin}65%{margin-left:2vmin}100%{margin-left:0}}
+@keyframes slide{0%{transform:translateX(-4%)}50%{transform:translateX(5%)}100%{transform:translateX(-2%)}}
+</style></head><body><div class="all"><div class="tint"></div><div class="mask"></div><div class="eye l"></div><div class="eye r"></div><div class="grin"></div>
+<div class="slice s1"></div><div class="slice s2"></div><div class="slice s3"></div><div class="scan"></div></div></body></html>`;
+  void win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  win.once('ready-to-show', () => win.showInactive());
+  setTimeout(() => { if (!win.isDestroyed()) win.destroy(); }, 4600);
   return win;
 }
 

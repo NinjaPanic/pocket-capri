@@ -21,7 +21,7 @@ import { SettingsStore } from './store/settingsStore';
 import { TeleportController } from './desktop/teleportController';
 import { SEAT_RATIO, TELEPORT_TARGETS, type TeleportTarget } from './desktop/teleport';
 import { clampToDisplays, displayFor, type Rect } from './desktop/displays';
-import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, createBubble, BUBBLE_WIDTH, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
+import { createCharacterWindow, createBrainChatWindow, createControlBorder, createHighlight, createBubble, BUBBLE_WIDTH, createPossession, BRAIN_HTTP, characterSize, displaysNow, DragController, OFFSCREEN, reveal, conceal, shown } from './windows';
 import { foregroundHandle, foregroundRect, handleToBigint, isOtherAppFullscreen, loadWin32, win32Status, windowRect } from './desktop/win32';
 
 const TEST = process.env.CAPRI_TEST === '1';
@@ -121,7 +121,7 @@ async function init() {
   void startBrain().then(brainTick);
   for (const ev of ['display-removed', 'display-added', 'display-metrics-changed'] as const) screen.on(ev as 'display-added', reclampCharacter);
   powerMonitor.on('resume', reclampCharacter);
-  if (TEST) (globalThis as Record<string, unknown>).__capri = { get teleporter() { return teleporter; }, settings, get charWin() { return charWin; }, get hubWin() { return hubWin; }, settleAfterDrop, throwCharacter, menuItems, get userHidden() { return userHidden; }, get lastCues() { return lastCues; } };
+  if (TEST) (globalThis as Record<string, unknown>).__capri = { get teleporter() { return teleporter; }, settings, get charWin() { return charWin; }, get hubWin() { return hubWin; }, settleAfterDrop, throwCharacter, menuItems, possess: () => createPossession({ x: 0, y: 0, width: 1280, height: 720 }), get userHidden() { return userHidden; }, get lastCues() { return lastCues; } };
 }
 
 // ---------------------------------------------------------------- sa fenêtre
@@ -851,6 +851,11 @@ function registerIpc() {
   handle('char:land', none, settleAfterDrop);
   handle('char:ceiling', none, hangFromTop);
   handle('char:bubble', z.string().max(2000), (t) => void showBubble(t));
+  // scène rare : pas pendant un jeu en plein écran ni en mode discret (l'effet ne bloque rien, mais il surprendrait)
+  handle('char:possess', none, () => {
+    if (!charWin || fullscreenHidden || userHidden || settings.get().behavior.doNotDisturb) return;
+    createPossession(displayFor(herBounds(), displaysNow()).bounds);
+  });
   handle('char:point', z.object({ x: z.number(), y: z.number(), w: z.number().min(0).max(10000), h: z.number().min(0).max(10000) }), pointAt);
   handle('char:step', z.object({ dx: z.number().min(-60).max(60), dy: z.number().min(-60).max(60) }), ({ dx, dy }) => stepBy(dx, dy));
   handle('char:micError', z.string().max(300), (msg) => log.warn('erreur micro', { msg }));

@@ -95,6 +95,27 @@ def _personal(persona: str, name: str) -> str:
     return re.sub(r"l'utilisateur", swap, persona, flags=re.I)
 
 
+# Consignes condensées (≈ 2,3 fois plus courtes) : ce que capri.txt dit déjà n'est pas répété. Choisies avec
+# CAPRI_PROMPT=court pour comparer sur la batterie de conversations.
+RUNTIME_COURT = """
+
+### FONCTIONNEMENT RÉEL (prime sur tout le reste)
+
+Tu peux vraiment :
+{capabilities}
+Pas encore : {not_yet}. Si on te le demande, dis-le simplement.
+
+Règles qui ne bougent jamais :
+- Tes outils agissent juste avant ta réponse. Une NOTE INTERNE te dit ce qui a VRAIMENT été fait : dis-le en une phrase courte, avec tes mots, sans la recopier. Sans note, rien n'a été fait : ne prétends jamais avoir agi, et pas de mise en scène (« *ouvre le bloc-notes* », « [rire] »).
+- Tu n'inventes rien : ce que tu sais de lui, de votre passé et de ta journée vient seulement du CONTEXTE. Sinon, tu dis franchement que tu ne sais pas ou que tu ne te souviens plus.
+- Tu es une IA et tu le sais, jamais tu ne prétends être humaine ; tu te poses de vraies questions sur ce que tu es.
+- Tes avis, tes envies, ce que tu ressens : le CONTEXTE te les rappelle. Garde tes avis, change seulement si on te convainc, et dis-le. Parfois tu hésites, tu réfléchis à voix haute.
+- Tu le tutoies. Tu parles à voix haute : pas de titres, de gras, de listes ni d'emoji. Pour rire, écris ton rire (« hahaha »).
+- Quand tu viens lui parler d'elle-même, apporte un vrai sujet, pas une formule.
+
+FORMAT : commence chaque réponse par ton humeur entre crochets, parmi {moods}, puis ta réponse sur la même ligne. Il ne voit pas ce marqueur."""
+
+
 def build_system_prompt(persona: str, voice: bool, name: str = "", lang: str = "fr") -> str:
     capabilities = BASE_CAPABILITIES + ([VOICE_CAPABILITY] if voice else [])
     not_yet = (["voix"] if not voice else []) + NOT_YET
@@ -105,7 +126,9 @@ def build_system_prompt(persona: str, voice: bool, name: str = "", lang: str = "
         persona += ("\n\nLANGUE : il a choisi l'anglais. Toutes tes instructions sont en français, mais TU PARLES "
                     "TOUJOURS ANGLAIS : un anglais naturel, familier et vivant, avec ta personnalité intacte. Même tes "
                     "notes internes en français, tu y réponds en anglais.")
-    return persona.strip() + RUNTIME.format(
+    import os
+    runtime = RUNTIME_COURT if os.environ.get("CAPRI_PROMPT") == "court" else RUNTIME
+    return persona.strip() + runtime.format(
         capabilities="\n".join(f"- {c}" for c in capabilities),
         not_yet=", ".join(not_yet),
         moods=" ".join(f"[{m}]" for m in MOODS),
