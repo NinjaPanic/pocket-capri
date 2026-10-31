@@ -118,9 +118,15 @@ POSES = [
     (r"fais (moi )?coucou|salue[- ]moi|\bwave\b", "wave", "faire coucou"),
     # ses mini-jeux : elle lance vraiment la partie
     (r"cache[- ]cache|hide and seek", "game_hide", "lancer une partie de cache-cache (tu vas te cacher derrière une de ses fenêtres)"),
-    (r"(jeu|partie|jouer) (de|aux) r[ée]flexes?|reflex game", "game_reflex", "lancer une partie de réflexes (tu vas apparaître 8 fois, il doit te toucher)"),
+    (r"(jeu|partie|jouer) (de|aux|des) r[ée]flexes?|reflex game|^\W*(ok |vas[- ]y |alors )?(les |le jeu des |aux )?r[ée]flexes?\W*$",
+     "game_reflex", "lancer une partie de réflexes (tu vas apparaître 8 fois, il doit te toucher)"),
 ]
 POSE_ASK = [(re.compile(rx, re.I), emote, verb) for rx, emote, verb in POSES]
+PLAY_ASK = re.compile(r"mini[- ]?(jeux?|games?)|\b(on|tu veux|veux[- ]tu|on peut|si on|ça te dit de) (jouer|joue)\b|"
+                      r"jou(e|er) avec (moi|toi)|un (petit )?jeu\b|play (a game|with me)|wanna play", re.I)
+PICK_FOR_ME = re.compile(r"lequel|laquelle|tu pr[ée]f[eè]res|choisis|[àa] toi de (voir|choisir)|comme tu (veux|le sens)|"
+                         r"peu importe|je (ne )?sais pas|n'importe|surprends[- ]moi|vas[- ]y|allez|\bgo\b|"
+                         r"you (pick|choose)|whichever|your call|surprise me", re.I)
 MOVES = {"dance", "fly", "walk", "spin", "stretch", "wave", "game_hide", "game_reflex"}  # des gestes, pas des positions qu'elle garde
 
 
@@ -428,6 +434,21 @@ class Capri:
                 note = (f"[NOTE INTERNE, ne la cite pas] Tu viens de {verb} pour de vrai : ta voix et ton avatar l'ont fait, "
                         "le son est déjà au début de ta réponse. Continue juste avec quelques mots naturels, sans décrire ce "
                         f"que tu fais et sans répéter le son. Reste dans cette émotion-là ({verb}), ne parle pas d'une autre.")
+            elif not note and (game := self._game_choice(text)):
+                # elle vient de proposer ses jeux et il la laisse choisir (ou redemande) : elle choisit et lance, pour de vrai
+                await self.broadcast({"type": "emote", "name": game})
+                label = "cache-cache" if game == "game_hide" else "réflexes"
+                note = (f"[NOTE INTERNE, ne la cite pas] Il te laisse choisir : tu viens VRAIMENT de lancer une partie de "
+                        f"{label}, elle commence là. Annonce ton choix avec entrain en une phrase courte (sans répéter les "
+                        "règles, sans lui reprocher d'avoir redemandé).")
+            elif not note and PLAY_ASK.search(text):
+                # « on fait un jeu ? » : elle propose ses vrais jeux, pas des « idées tordues » en l'air
+                note = ("[NOTE INTERNE, ne la cite pas] Il veut jouer avec toi. Tes vrais mini-jeux, que tu lances pour de "
+                        "vrai dès qu'il dit lequel : CACHE-CACHE (tu te glisses derrière une de ses fenêtres en dépassant un "
+                        "peu, il a une minute pour cliquer sur toi) et RÉFLEXES (tu apparais 8 fois au hasard, de plus en plus "
+                        "vite, il doit te toucher avant que tu repartes). À l'oral tu peux aussi faire devinettes ou 20 "
+                        "questions. Propose-les concrètement en une ou deux phrases (noms écrits normalement, pas en majuscules), "
+                        "dis lequel te tente toi, et demande-lui lequel. N'invente aucun autre jeu.")
             elif not note and (again := self._asked_again(text)):
                 # il repose (presque) la même question : une personne le remarque au lieu de répondre pareil
                 minutes, before, answer = again
@@ -555,6 +576,20 @@ class Capri:
                 out += "\nUne journée passée qui y ressemble (souvenir résumé, fiable) : " + " / ".join(
                     f"le {s['day']} : {s['content']}" for s in older)
         return out
+
+    def _game_choice(self, text: str) -> str | None:
+        """Elle vient de proposer cache-cache et réflexes, et il répond « lequel tu préfères ? », « choisis »,
+        « vas-y », ou redemande à jouer : c'est à elle de choisir (un peu plus souvent cache-cache, son préféré).
+        Juste après une partie, « on rejoue ? » relance la même."""
+        # sa vraie dernière réponse (l'historique envoyé au modèle peut en avoir retiré les mots qu'elle répète)
+        last = next((m["content"] for m in reversed(self.memory.recent_messages(3)) if m["role"] == "assistant"), "")
+        hide, reflex = re.search(r"cache", last, re.I), re.search(r"r[ée]flexe|reflex", last, re.I)
+        if hide and reflex and (PICK_FOR_ME.search(text) or PLAY_ASK.search(text)):
+            return "game_hide" if random.random() < 0.6 else "game_reflex"
+        # « on rejoue ? », « une revanche » juste après une partie : la même, tout de suite
+        if (hide or reflex) and re.search(r"encore|rejou|revanche|une autre|again|rematch|one more", text, re.I):
+            return "game_hide" if hide else "game_reflex"
+        return None
 
     def _mind_context(self, text: str) -> str:
         out = ""

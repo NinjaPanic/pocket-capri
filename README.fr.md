@@ -68,6 +68,7 @@ Réglages → Sa voix.
   vie intérieure, outils pour piloter le PC, hub web.
 - `body/` : son corps (Electron). Fenêtre transparente, squelette animé, visage, déplacements, menus.
 - `capri.txt` : sa personnalité. Modifie-la comme tu veux.
+- `Capri.vbs` : la lance (c'est aussi lui que Windows démarre avec le PC) ; `installer/start-capri.bat` fait l'installation la première fois.
 - `brain/config.toml` : les réglages de base (la plupart se changent aussi dans le hub).
 
 Tes données restent sur ton PC, dans `brain/data/` (conversations, souvenirs, réglages, clés d'API) : ce dossier

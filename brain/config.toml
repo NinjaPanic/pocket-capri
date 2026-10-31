@@ -1,5 +1,5 @@
 # Configuration du cerveau de Capri.
-# Relance start-capri.bat après une modification.
+# Relance Capri (Capri.vbs ou menu de l'icône › Redémarrer) après une modification.
 
 [server]
 # 127.0.0.1 = accessible uniquement depuis ce PC.

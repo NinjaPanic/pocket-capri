@@ -66,6 +66,7 @@ Settings → Her voice.
   speak), inner life, PC control tools, and the web hub.
 - `body/` — her body (Electron): transparent window, animated skeleton, face, movement, menus.
 - `capri.txt` — her personality. Edit it however you like.
+- `Capri.vbs` — starts her (and is what Windows runs at startup); `installer/start-capri.bat` does the first-time install.
 - `brain/config.toml` — base settings (most can also be changed in the hub).
 
 Your data stays on your PC in `brain/data/` (conversations, memories, settings, API keys): that folder is never

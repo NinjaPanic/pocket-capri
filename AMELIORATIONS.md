@@ -313,6 +313,23 @@ Les records sont gardés (`jeux.json`). La déplacer à la main ou la cacher arr
 
 Rendus vérifiés image par image (hors écran). Tests : `test_summaries.py`, `games.test.ts`.
 
+### 2.13 Rangement, mini-jeux en conversation, quota Groq (31 octobre)
+
+**Rangement.** À la racine il ne reste que ce qui sert : `Capri.vbs` (le lanceur, aussi utilisé par le démarrage avec
+Windows), `capri.txt` (sa personnalité), les README, la licence et ce rapport. L'installation est passée dans
+`installer/start-capri.bat`. 16 scripts ponctuels supprimés (bande-annonce, comparaisons, sondes) ; les vieux dossiers
+locaux (ancien code, rendus de test, bande-annonce, essais de voix) sont déplacés dans `_archives/`, jamais en ligne.
+
+**« On fait un mini-jeu ? »** Elle propose ses vrais jeux (cache-cache, réflexes, ou devinettes à l'oral) au lieu
+d'« idées tordues » en l'air. Si tu la laisses choisir (« lequel tu préfères ? », « vas-y »), elle choisit et lance la
+partie pour de vrai ; « on rejoue ? » relance la même. Vérifié en conversation réelle.
+
+**Quota Groq.** Le gpt-oss-120b gratuit n'autorise que 8 000 tokens par minute, et un échange en coûte ~5 000 (sa
+personnalité et son contexte) : au deuxième message rapide, elle répondait « Limite de Groq atteinte ». Maintenant, quand
+le quota est plein, sa réponse passe par son modèle local (qui quitte la carte graphique 3 minutes après), et ses
+réflexions de fond attendent quand il reste moins de 3 000 tokens, pour garder le quota à la conversation.
+Tests : `test_play.py`, `test_llm_quota.py`.
+
 ## 3. Audit de l'existant (vérifié dans le code)
 
 Légende : ✅ présent et fonctionnel · 🟡 présent, à améliorer · 🟠 partiel · ❌ absent · ➕ ajouté dans ce lot · ⛔ non pertinent

@@ -13,7 +13,7 @@ if not exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
 )
 
 rem --- Brain (Python 3.12) ---------------------------------------------------------
-cd /d "%~dp0brain"
+cd /d "%~dp0..\brain"
 if not exist .venv\Scripts\python.exe (
     echo Installing her brain - a few minutes, first time only...
     py -3.12 -m venv .venv || goto :error
@@ -45,14 +45,14 @@ if defined NEED (
 )
 
 rem --- Avatar (Node.js) ------------------------------------------------------------
-cd /d "%~dp0body"
+cd /d "%~dp0..\body"
 if not exist node_modules (
     echo Installing her avatar - first time only...
     call npm ci --no-audit --no-fund || goto :error
 )
 
 call node scripts\build.mjs >nul || goto :error
-start "" "%~dp0body\node_modules\electron\dist\electron.exe" "%~dp0body"
+start "" "%~dp0..\body\node_modules\electron\dist\electron.exe" "%~dp0..\body"
 exit /b
 
 :error

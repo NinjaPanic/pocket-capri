@@ -40,6 +40,9 @@ log = logging.getLogger("capri")
 GPU_CRASH = re.compile(r"cuda|illegal memory|out of memory|runner (process )?(has )?(terminated|exited)|unexpected eof|llama runner", re.I)
 
 
+_PLAIN = str.maketrans({"\u2011": "-", "\u202f": " ", "\u00a0": " "})  # tirets et espaces insécables
+
+
 class _GpuCrash(Exception):
     pass
 
@@ -50,6 +53,23 @@ class _Preempted(Exception):
 
 class LLMError(Exception):
     pass
+
+
+class _QuotaFull(LLMError):
+    """Le service en ligne refuse pour l'instant (quota par minute ou par jour) ; `wait` : secondes avant de réessayer."""
+    def __init__(self, message: str, wait: float):
+        super().__init__(message)
+        self.wait = wait
+
+
+def _seconds(text: str | None) -> float | None:
+    """Durée des en-têtes de quota (« 45.3s », « 24m28.8s », « 120ms », « 7 ») en secondes."""
+    if not text:
+        return None
+    if re.fullmatch(r"[\d.]+", text):
+        return float(text)
+    parts = re.findall(r"([\d.]+)(ms|h|m|s)", text)
+    return sum(float(n) * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[u] for n, u in parts) if parts else None
 
 
 @dataclass
@@ -82,6 +102,10 @@ class LLM:
         self.last_stats: dict = {}  # chiffres d'Ollama pour la dernière réponse (tokens/s, lecture du prompt)
         self._background = asyncio.Lock()  # une seule réflexion de fond à la fois
         self.user_active_at = 0.0  # il vient de se mettre à parler (micro) : les réflexions de fond s'effacent
+        # quota du service en ligne (Groq gratuit : 8 000 tokens par minute) : ce qu'il en reste, et jusqu'à quand il est plein
+        self.cloud_tokens_left: int | None = None
+        self.cloud_reset_at = 0.0
+        self.cloud_full_until = 0.0
 
     def reload(self, cfg: dict) -> None:
         """Prend en compte un changement de fournisseur, de modèle ou de clé fait depuis le hub."""
@@ -143,7 +167,7 @@ class LLM:
         else:
             self.foreground += 1
         if self.provider in PROVIDERS:
-            gen = self._cloud_stream(messages, temp, json_mode, tools)
+            gen = self._cloud_or_local(messages, temp, json_mode, tools, background)
         else:
             gen = self._ollama_stream(messages, temp, json_mode, tools=tools)
         try:
@@ -249,13 +273,13 @@ class LLM:
 
     async def _ollama_stream(
         self, messages: list[dict], temperature: float, json_mode: bool, max_tokens: int | None = None,
-        tools: list[dict] | None = None,
+        tools: list[dict] | None = None, keep_alive: str | None = None,
     ) -> AsyncIterator[str | ToolCall]:
         body = {
             "model": self.ollama["model"],
             "messages": messages,
             "stream": True,
-            "keep_alive": self.ollama["keep_alive"],
+            "keep_alive": keep_alive or self.ollama["keep_alive"],
             "options": {
                 "num_ctx": self.ollama["num_ctx"],
                 "temperature": temperature,
@@ -338,6 +362,41 @@ class LLM:
             except httpx.HTTPError as e:
                 raise LLMError(f"Erreur réseau avec Ollama ({e.__class__.__name__}).") from e
 
+    async def _cloud_or_local(
+        self, messages: list[dict], temperature: float, json_mode: bool, tools: list[dict] | None, background: bool,
+    ) -> AsyncIterator[str | ToolCall]:
+        """En ligne ; quand le quota est plein, la conversation passe par son modèle local (pas d'erreur pour lui),
+        et ses réflexions de fond attendent. Elles attendent aussi quand le quota est presque vide, pour lui le garder."""
+        now = time.monotonic()
+        if background and (now < self.cloud_full_until
+                           or (self.cloud_tokens_left is not None and self.cloud_tokens_left < 3000 and now < self.cloud_reset_at)):
+            raise LLMError("quota en ligne gardé pour la conversation")
+        if now >= self.cloud_full_until:
+            try:
+                async for piece in self._cloud_stream(messages, temperature, json_mode, tools):
+                    yield piece
+                return
+            except _QuotaFull as e:
+                self.cloud_full_until = time.monotonic() + e.wait
+                if background:
+                    raise
+                log.warning("Quota en ligne plein pour %.0f s : réponse avec le modèle local", e.wait)
+                full = e
+        else:
+            full = _QuotaFull(f"Limite de {PROVIDERS[self.provider]['label']} atteinte, réessaie dans un moment.", 0)
+        try:
+            # le temps que le quota revienne : il quitte la carte graphique peu après
+            async for piece in self._ollama_stream(messages, temperature, json_mode, tools=tools, keep_alive="3m"):
+                yield piece
+        except LLMError:
+            raise full from None
+
+    def _note_quota(self, headers: httpx.Headers) -> None:
+        left = headers.get("x-ratelimit-remaining-tokens")
+        if left and left.isdigit():
+            self.cloud_tokens_left = int(left)
+            self.cloud_reset_at = time.monotonic() + (_seconds(headers.get("x-ratelimit-reset-tokens")) or 60)
+
     async def _cloud_stream(
         self, messages: list[dict], temperature: float, json_mode: bool, tools: list[dict] | None = None
     ) -> AsyncIterator[str | ToolCall]:
@@ -352,7 +411,7 @@ class LLM:
         if "gpt-oss" in model:
             # modèle qui « réfléchit » avant de répondre : au minimum (plus rapide, et moins de tokens du quota gratuit)
             body["reasoning_effort"] = "low"
-            body["max_tokens"] = self.max_tokens + 600  # sa réflexion compte dans la limite
+            body["max_tokens"] = self.max_tokens + 300  # sa réflexion compte dans la limite (et dans le quota par minute)
         if json_mode and self.provider != "anthropic":
             body["response_format"] = {"type": "json_object"}
         if tools:
@@ -371,10 +430,12 @@ class LLM:
                             body.pop("temperature", None)
                             continue
                         if r.status_code == 429:
-                            raise LLMError(f"Limite de {name} atteinte, réessaie dans un moment.")
+                            wait = _seconds(r.headers.get("retry-after")) or _seconds(r.headers.get("x-ratelimit-reset-tokens"))
+                            raise _QuotaFull(f"Limite de {name} atteinte, réessaie dans un moment.", min(wait or 30, 3600))
                         if r.status_code in (401, 403):
                             raise LLMError(f"{name} refuse la clé (invalide ou sans crédit).")
                         raise LLMError(f"{name} : {detail[:300]}")
+                    self._note_quota(r.headers)
                     async for line in r.aiter_lines():
                         if not line.startswith("data:"):
                             continue
@@ -384,7 +445,8 @@ class LLM:
                         choices = json.loads(payload).get("choices") or [{}]
                         delta = choices[0].get("delta") or {}
                         if piece := delta.get("content"):
-                            yield piece
+                            # tirets et espaces insécables de gpt-oss : normaux, pour la voix et la bulle
+                            yield piece.translate(_PLAIN)
                         for part in delta.get("tool_calls") or []:
                             call = calls.setdefault(part.get("index", 0), {"id": "", "name": "", "args": ""})
                             call["id"] = part.get("id") or call["id"]

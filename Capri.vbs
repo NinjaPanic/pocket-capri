@@ -9,7 +9,7 @@ installed = fso.FileExists(dir & "\brain\.venv\Scripts\python.exe") _
     And fso.FileExists(dir & "\brain\models\kokoro-v1.0.int8.onnx") _
     And fso.FileExists(models)
 If installed Then
-    sh.Run """" & dir & "\start-capri.bat""", 0, False
+    sh.Run """" & dir & "\installer\start-capri.bat""", 0, False
 Else
-    sh.Run """" & dir & "\start-capri.bat""", 1, False
+    sh.Run """" & dir & "\installer\start-capri.bat""", 1, False
 End If

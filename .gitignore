@@ -5,8 +5,6 @@ brain/data/*
 *.log
 # ta voix
 brain/voix_locale/ma_voix.wav
-essais-voix/
-capri.original.txt
 
 # --- Ce qui se télécharge ou se reconstruit -------------------------------
 brain/.venv/
@@ -20,17 +18,9 @@ body/out/
 body/release/
 
 # --- Hors projet ------------------------------------------------------------
-# ancien code de capri-companion, rendus de test, bande-annonce, captures de la série
-body/_ancien/
-body/face-lab/
-body/trailer/
+# vieux code, rendus de test, bande-annonce, essais de voix : rangés dans _archives (jamais en ligne)
+_archives/
 body/reference/cutouts/
-body/assets/eye-ref.png
-body/assets/eye-closed-ref.png
-body/assets/face-ref.png
-body/assets/eye-color.png
-body/assets/eye-keep.png
-body/docs/
 
 # --- Système ------------------------------------------------------------------
 .DS_Store

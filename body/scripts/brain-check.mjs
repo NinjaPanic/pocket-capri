@@ -1,5 +1,5 @@
 // Vérifie que l'avatar et le cerveau se parlent : connexion, micro, humeur, voix → bouche.
-// Le cerveau doit tourner (start-capri.bat ou python -m capri_brain). Usage : node scripts/brain-check.mjs
+// Le cerveau doit tourner (Capri.vbs ou python -m capri_brain). Usage : node scripts/brain-check.mjs
 import { _electron as electron } from 'playwright-core';
 import fs from 'node:fs';
 import os from 'node:os';
