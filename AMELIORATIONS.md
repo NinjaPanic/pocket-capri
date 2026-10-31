@@ -330,6 +330,28 @@ le quota est plein, sa réponse passe par son modèle local (qui quitte la carte
 réflexions de fond attendent quand il reste moins de 3 000 tokens, pour garder le quota à la conversation.
 Tests : `test_play.py`, `test_llm_quota.py`.
 
+### 2.14 Elle pilote tout le PC, démarrage et départ animés (31 octobre)
+
+**Tout le PC.** En plus de ce qu'elle savait faire (verrouiller, veille, éteindre, programmes, volume, fenêtres…) :
+- `commande` : n'importe quelle commande PowerShell (adresse IP, fichiers, réseau, services, installer un logiciel avec
+  winget…), en administrateur si besoin. **Toujours** après ton « oui », avec la commande exacte affichée et dite, même
+  si tu as réglé qu'elle agisse sans demander : elle lit des pages et des fenêtres, et un texte piégé ne doit jamais
+  pouvoir lancer une commande à ta place. En administrateur, c'est Windows qui te demande l'autorisation (fenêtre UAC) ;
+- `parametres_windows` : wifi, Bluetooth, affichage, son, mises à jour, applications, gestionnaire des tâches… ;
+- `ecran` : éteindre l'écran, régler la luminosité (écrans de portable) ;
+- `presse_papiers` (lire / copier), `capture_ecran` (dans Images\Capri) ;
+- `alimentation` : en plus, fermer la session et mettre en veille prolongée (confirmés).
+Vérifié en réel : « c'est quoi mon adresse IP ? » → feu vert → réponse juste.
+Corrigé au passage : une adresse IP ou « 3.5 Go » coupait sa réponse (chaque point comptait comme une fin de phrase).
+
+**Démarrage** : elle s'allume comme un vieil écran (une ligne), se construit des pieds à la tête sous une ligne de
+balayage et une pluie de glyphes, un éclair blanc, puis ouvre grand les bras. **Départ** (Quitter) : « À plus tard… »,
+un coucou, elle se défait de la tête aux pieds en glyphes qui s'envolent, la dernière ligne se replie en un point qui
+s'éteint ; ensuite seulement tout s'arrête. Rendus vérifiés image par image.
+
+**Quota en ligne** : le passage au modèle local quand le quota est plein vaut pour tous les services en ligne (Groq,
+Gemini, OpenAI, Anthropic, Mistral, xAI, DeepSeek, OpenRouter), et aussi quand il n'y a plus de crédit (erreur 402).
+
 ## 3. Audit de l'existant (vérifié dans le code)
 
 Légende : ✅ présent et fonctionnel · 🟡 présent, à améliorer · 🟠 partiel · ❌ absent · ➕ ajouté dans ce lot · ⛔ non pertinent

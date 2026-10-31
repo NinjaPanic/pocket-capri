@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import time
 import unicodedata
 import webbrowser
@@ -324,13 +325,109 @@ def power(action: str) -> str:
         return "PC verrouillé."
     cmd = {"eteindre": "shutdown /s /t 30", "redemarrer": "shutdown /r /t 30",
            "veille": "rundll32.exe powrprof.dll,SetSuspendState 0,1,0",
+           "hiberner": "shutdown /h", "deconnecter": "shutdown /l",
            "annuler": "shutdown /a"}.get(action)
     if not cmd:
         return f"ÉCHEC : action « {action} » inconnue."
     subprocess.Popen(cmd, shell=True)
     return {"eteindre": "Extinction dans 30 secondes (dis « annule » pour l'arrêter).",
             "redemarrer": "Redémarrage dans 30 secondes (dis « annule » pour l'arrêter).",
-            "veille": "Mise en veille.", "annuler": "Extinction annulée."}[action]
+            "veille": "Mise en veille.", "hiberner": "Mise en veille prolongée.",
+            "deconnecter": "Session fermée.", "annuler": "Extinction annulée."}[action]
+
+
+# --- Tout le reste du PC : commandes, réglages, écran, presse-papiers ---------
+
+_NO_WINDOW = 0x08000000
+_PS = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]
+_UTF8 = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $ProgressPreference='SilentlyContinue'; "
+
+
+def _ps(script: str, timeout: float = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(_PS + [_UTF8 + script], capture_output=True, timeout=timeout, creationflags=_NO_WINDOW)
+
+
+def run_command(commande: str, admin: bool = False) -> str:
+    """N'importe quelle commande PowerShell (toujours après son « oui », la commande exacte sous les yeux).
+    En administrateur, Windows lui demande lui-même l'autorisation (fenêtre UAC) : elle ne la contourne jamais."""
+    try:
+        if not admin:
+            r = _ps(commande)
+            out = (r.stdout + r.stderr).decode("utf-8", "replace").strip()
+            return (f"Code de sortie {r.returncode}. " if r.returncode else "Fait. ") + (out[-1500:] or "(aucune sortie)")
+        base = Path(tempfile.gettempdir()) / f"capri-admin-{int(time.time() * 1000)}"
+        script, output = base.with_suffix(".ps1"), base.with_suffix(".txt")
+        script.write_text(_UTF8 + f"& {{\n{commande}\n}} *>&1 | Out-File -Encoding utf8 -FilePath '{str(output).replace(chr(39), chr(39) * 2)}'",
+                          encoding="utf-8-sig")
+        quoted = str(script).replace("'", "''")
+        r = _ps(f"Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList "
+                f"'-NoProfile','-ExecutionPolicy','Bypass','-File','\"{quoted}\"'", timeout=300)
+        try:
+            out = output.read_text(encoding="utf-8-sig", errors="replace").strip() if output.exists() else ""
+        finally:
+            script.unlink(missing_ok=True)
+            output.unlink(missing_ok=True)
+        if r.returncode:
+            return "ÉCHEC : la demande d'administrateur a été refusée (ou Windows l'a bloquée)."
+        return "Fait en administrateur. " + (out[-1500:] or "(aucune sortie)")
+    except subprocess.TimeoutExpired:
+        return "ÉCHEC : la commande a pris trop de temps, arrêtée."
+
+
+SETTINGS_PAGES = {
+    "wifi": "ms-settings:network-wifi", "reseau": "ms-settings:network", "bluetooth": "ms-settings:bluetooth",
+    "affichage": "ms-settings:display", "son": "ms-settings:sound", "mises_a_jour": "ms-settings:windowsupdate",
+    "applications": "ms-settings:appsfeatures", "demarrage": "ms-settings:startupapps",
+    "fond_ecran": "ms-settings:personalization-background", "theme": "ms-settings:themes",
+    "notifications": "ms-settings:notifications", "alimentation": "ms-settings:powersleep",
+    "stockage": "ms-settings:storagesense", "confidentialite": "ms-settings:privacy", "souris": "ms-settings:mousetouchpad",
+    "comptes": "ms-settings:yourinfo", "date_heure": "ms-settings:dateandtime", "jeux": "ms-settings:gaming-gamebar",
+    "gestionnaire_taches": "taskmgr", "panneau_configuration": "control", "parametres": "ms-settings:",
+}
+
+
+def open_settings(page: str) -> str:
+    key = _best_match(plain(page).replace(" ", "_"), SETTINGS_PAGES) or "parametres"
+    target = SETTINGS_PAGES[key]
+    if target.startswith("ms-settings"):
+        os.startfile(target)
+    else:
+        subprocess.Popen([target], creationflags=_NO_WINDOW)
+    return f"Ouvert : {key.replace('_', ' ')}."
+
+
+def screen(action: str, niveau: int | None = None) -> str:
+    action = plain(action)
+    if action == "eteindre":
+        # SC_MONITORPOWER à toutes les fenêtres : l'écran se met en veille, il se rallume à la souris
+        ctypes.windll.user32.PostMessageW(0xFFFF, 0x0112, 0xF170, 2)
+        return "Écran éteint (il se rallume dès que tu bouges la souris)."
+    if action == "luminosite":
+        n = max(0, min(100, int(niveau if niveau is not None else 50)))
+        r = _ps(f"(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop)"
+                f" | Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Brightness={n}; Timeout=0}}", timeout=15)
+        if r.returncode:
+            return "ÉCHEC : cet écran ne se règle pas depuis Windows (écran externe : avec ses propres boutons)."
+        return f"Luminosité à {n} %."
+    return f"ÉCHEC : action « {action} » inconnue."
+
+
+def clipboard(action: str, texte: str = "") -> str:
+    if plain(action) == "ecrire":
+        r = subprocess.run(_PS + ["$input | Set-Clipboard"], input=texte.encode("utf-8"), capture_output=True,
+                           timeout=10, creationflags=_NO_WINDOW)
+        return "Copié dans le presse-papiers." if not r.returncode else "ÉCHEC : presse-papiers indisponible."
+    out = _ps("Get-Clipboard -Raw", timeout=10).stdout.decode("utf-8", "replace").strip()
+    return f"Presse-papiers : « {out[:1500]} »" if out else "Le presse-papiers est vide (ou ce n'est pas du texte)."
+
+
+def screenshot() -> str:
+    from PIL import ImageGrab
+    folder = Path.home() / "Pictures" / "Capri"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / time.strftime("capture-%Y%m%d-%H%M%S.png")
+    ImageGrab.grab(all_screens=True).save(path)
+    return f"Capture enregistrée : {path}"
 
 
 # --- Catalogue des outils (format OpenAI / Ollama) --------------------------
@@ -373,9 +470,26 @@ TOOLS: dict[str, Tool] = {
                     {"action": _s("Commande", ["lecture_pause", "suivant", "precedent", "stop"])}, ["action"]),
     "etat_du_pc": Tool(system_info, "Donne l'état du PC : processeur, mémoire, disque, programmes gourmands.", {}, []),
     "alimentation": Tool(power, "Verrouille, met en veille, éteint ou redémarre le PC, ou annule une extinction prévue.",
-                         {"action": _s("Action", ["verrouiller", "veille", "eteindre", "redemarrer", "annuler"])}, ["action"],
-                         risky=lambda a: plain(a.get("action", "")) in ("veille", "eteindre", "redemarrer")),
+                         {"action": _s("Action", ["verrouiller", "veille", "hiberner", "deconnecter", "eteindre", "redemarrer", "annuler"])},
+                         ["action"],
+                         risky=lambda a: plain(a.get("action", "")) in ("veille", "hiberner", "deconnecter", "eteindre", "redemarrer")),
 }
+
+TOOLS.update({
+    "commande": Tool(run_command, "Exécute une commande PowerShell sur le PC : tout ce qu'aucun autre outil ne fait (réseau, "
+                     "fichiers, services, réglages système, installer un logiciel avec winget…). Il valide toujours avant.",
+                     {"commande": _s("La commande PowerShell exacte"),
+                      "admin": {"type": "boolean", "description": "true seulement si la commande exige les droits administrateur"}},
+                     ["commande"], risky=lambda a: True),
+    "parametres_windows": Tool(open_settings, "Ouvre une page des paramètres de Windows, le gestionnaire des tâches ou le panneau de configuration.",
+                               {"page": _s("Page", list(SETTINGS_PAGES))}, ["page"]),
+    "ecran": Tool(screen, "Éteint l'écran (il se rallume à la souris) ou règle sa luminosité.",
+                  {"action": _s("Action", ["eteindre", "luminosite"]),
+                   "niveau": {"type": "integer", "description": "Luminosité visée en %"}}, ["action"]),
+    "presse_papiers": Tool(clipboard, "Lit le texte du presse-papiers, ou y copie un texte.",
+                           {"action": _s("Action", ["lire", "ecrire"]), "texte": _s("Texte à copier (pour ecrire)")}, ["action"]),
+    "capture_ecran": Tool(screenshot, "Enregistre une capture de tout l'écran dans Images\\Capri.", {}, []),
+})
 
 TOOL_SCHEMAS = [tool.schema(name) for name, tool in TOOLS.items()]
 
@@ -387,8 +501,12 @@ def describe(name: str, args: dict) -> str:
     if name == "fermer_programme":
         return f"fermer « {args.get('nom', '?')} »"
     if name == "alimentation":
-        return {"veille": "mettre le PC en veille", "eteindre": "éteindre le PC",
+        return {"veille": "mettre le PC en veille", "hiberner": "mettre le PC en veille prolongée",
+                "deconnecter": "fermer ta session Windows", "eteindre": "éteindre le PC",
                 "redemarrer": "redémarrer le PC"}.get(plain(args.get("action", "")), name)
+    if name == "commande":
+        cmd = str(args.get("commande", "?"))
+        return f"lancer cette commande{' en administrateur' if args.get('admin') else ''} : {cmd[:200]}"
     if reason := hands.risk(name, args or {}):
         return reason
     return f"{name} {args}"
@@ -418,7 +536,8 @@ def needs_confirmation(name: str, args: dict) -> bool:
     if not SETTINGS.get("confirmer", True):
         # il a choisi qu'elle agisse sans demander ; éteindre ou redémarrer le PC reste confirmé
         # (une phrase mal entendue au micro ne doit pas couper son travail)
-        return name == "alimentation" and plain((args or {}).get("action", "")) in ("eteindre", "redemarrer")
+        return name == "commande" or (
+            name == "alimentation" and plain((args or {}).get("action", "")) in ("eteindre", "redemarrer", "deconnecter"))
     if hands.risk(name, args or {}):
         return True
     tool = TOOLS.get(name)
@@ -441,9 +560,14 @@ HINT = re.compile(r"\b(ouvr|lanc|demarr|ferm|quitt|mont|baiss|augment|diminu|cou
                   r"repos|tais|chut|reviens|reparle|rappel|minuteur|alarme|reveille|remind|timer|alarm|aller dans|va dans|playlist|titres? like|liked|ou est|ou se trouve|ou sont|where is|"
                   # « réessaie », « rouvre », « ça a pas marché » : refaire ce qui a raté
                   r"reessa|recommenc|refai|retent|rouvr|pas marche|bloc.?notes?|notepad|ecriv|"
+                  # le reste du PC : commandes, réglages, écran, presse-papiers
+                  r"commande|powershell|terminal|admin|adresse ip|\bip\b|wifi|bluetooth|reseau|internet|parametre|reglage|"
+                  r"luminosit|capture|presse.?papier|copie|colle|installe|desinstall|winget|service|dns|fichier|supprim|"
+                  r"renomm|deplace|disque|deconnect|hiberne|gestionnaire|session|mise a jour|"
                   # en anglais
                   r"open|launch|start|close|quit|turn (up|down|off)|volume|sound|music|song|play|resume|next|previous|skip|"
                   r"search|look up|website|folder|shut ?down|restart|lock|slow|lag|cpu|browser|program|app|game|"
+                  r"command|settings|brightness|screenshot|clipboard|install|file|delete|rename|log ?off|sign out|"
                   r"disturb|leave me alone|quiet|write|type|read|look|see|watch|screen|window|tab|click|reply|send|"
                   r"go to|find|show|mute|deafen|minimi|maximi|rest time|shut up|come back|retry|try again|again|didn.?t work)", re.I)
 
@@ -457,7 +581,7 @@ Méthode :
 - Un texte à écrire de sa part : écris-le comme Capri, une jeune femme, à la première personne, en le tutoyant, avec son style taquin et attaché (jamais « (e) » ni « (ne) »), dans la langue de l'utilisateur. Tape-le en une seule fois, puis ne le retape pas.
 - Quand c'est fait (ou impossible), n'appelle plus d'outil et réponds seulement : fini.
 Sinon (simple discussion, question sur un sujet, avis), n'appelle aucun outil et réponds seulement : aucune.
-Exemples : « ouvre Spotify » → ouvrir_programme(nom="Spotify") ; « mets le son à 30 » → volume(action="regler", niveau=30) ; « chanson suivante » → musique(action="suivant") ; « cherche des crêpes sur YouTube » → rechercher_web(recherche="crêpes", site="youtube") ; « lance la première vidéo » → lire_fenetre(nom="YouTube") puis cliquer(element=le numéro du premier titre de vidéo) ; « j'ai des messages sur Discord ? » → lire_fenetre(nom="Discord") ; « qu'est-ce qu'il y a sur mon écran ? » → regarder_ecran() ; « mon PC rame » → etat_du_pc() ; « laisse-moi tranquille une heure » → ne_pas_deranger(minutes=60) ; « Capri, temps de repos » ou « pause Capri » → ne_pas_deranger(minutes=120) ; « c'est bon tu peux revenir » → ne_pas_deranger(minutes=0) ; « on m'a écrit quoi sur Discord ? » → lire_fenetre(nom="Discord") ; « mute-moi sur Discord » → controler_appli(appli="discord", action="micro") ; « mets-moi en sourdine » → controler_appli(appli="discord", action="sourdine") ; « like cette musique » → controler_appli(appli="spotify", action="j_aime") ; « va dans mes titres likés » ou « ouvre ma playlist titres likés » → controler_appli(appli="spotify", action="titres_likes") ; « ferme cet onglet » → controler_appli(appli="navigateur", action="fermer_onglet") ; « réduis Spotify » → controler_appli(appli="spotify", action="reduire") ; « réessaie », « refais-le », « try again », « ça a pas marché » → refais la dernière demande d'action de l'utilisateur, même si Capri prétend l'avoir déjà faite ; « open notepad and write hi » → ouvrir_programme(nom="bloc-notes") puis ecrire(texte="hi") ; « turn the volume down » → volume(action="baisser") ; « rappelle-moi d'appeler maman dans 20 minutes » → creer_rappel(texte="appeler maman", dans_minutes=20) ; « rappelle-moi tous les jours à 9 h de prendre mes médicaments » → creer_rappel(texte="prendre tes médicaments", heure="09:00", repetition="quotidienne") ; « redis-le-moi dans 10 minutes » (juste après un rappel) → reporter_rappel(minutes=10) ; « annule le rappel pour maman » → annuler_rappel(texte="maman") ; « j'ai quoi comme rappels ? » → lister_rappels() ; « où est le bouton paramètres dans Discord ? » → lire_fenetre(nom="Discord") puis montrer(element=le numéro du bouton) ; « montre-moi où est Spotify » → montrer(fenetre="Spotify") ; « tu as bien fermé Spotify ? » ou « t'as ouvert quoi tout à l'heure ? » (une question sur le passé) → aucune ; « tu aimes la musique ? » → aucune ; « do you like music? » → aucune."""
+Exemples : « ouvre Spotify » → ouvrir_programme(nom="Spotify") ; « mets le son à 30 » → volume(action="regler", niveau=30) ; « chanson suivante » → musique(action="suivant") ; « cherche des crêpes sur YouTube » → rechercher_web(recherche="crêpes", site="youtube") ; « lance la première vidéo » → lire_fenetre(nom="YouTube") puis cliquer(element=le numéro du premier titre de vidéo) ; « j'ai des messages sur Discord ? » → lire_fenetre(nom="Discord") ; « qu'est-ce qu'il y a sur mon écran ? » → regarder_ecran() ; « mon PC rame » → etat_du_pc() ; « verrouille mon PC » → alimentation(action="verrouiller") ; « éteins l'écran » → ecran(action="eteindre") ; « baisse la luminosité à 40 » → ecran(action="luminosite", niveau=40) ; « ouvre les paramètres wifi » → parametres_windows(page="wifi") ; « ouvre le gestionnaire des tâches » → parametres_windows(page="gestionnaire_taches") ; « c'est quoi mon adresse IP ? » → commande(commande="(Get-NetIPAddress -AddressFamily IPv4 | Where-Object InterfaceAlias -notmatch 'Loopback').IPAddress") ; « vide le cache DNS » → commande(commande="Clear-DnsClientCache", admin=true) ; « installe VLC » → commande(commande="winget install -e --id VideoLAN.VLC --accept-source-agreements --accept-package-agreements") ; « crée un dossier Projets sur le bureau » → commande(commande="New-Item -ItemType Directory -Path \"$env:USERPROFILE\\Desktop\\Projets\"") ; « fais une capture d'écran » → capture_ecran() ; « qu'est-ce que j'ai copié ? » → presse_papiers(action="lire") ; « ferme ma session » → alimentation(action="deconnecter") ; pour tout ce qu'aucun autre outil ne fait, commande avec une commande PowerShell exacte et sûre (admin=true seulement si elle l'exige ; jamais de commande qui efface en masse ou désactive la sécurité) ; « laisse-moi tranquille une heure » → ne_pas_deranger(minutes=60) ; « Capri, temps de repos » ou « pause Capri » → ne_pas_deranger(minutes=120) ; « c'est bon tu peux revenir » → ne_pas_deranger(minutes=0) ; « on m'a écrit quoi sur Discord ? » → lire_fenetre(nom="Discord") ; « mute-moi sur Discord » → controler_appli(appli="discord", action="micro") ; « mets-moi en sourdine » → controler_appli(appli="discord", action="sourdine") ; « like cette musique » → controler_appli(appli="spotify", action="j_aime") ; « va dans mes titres likés » ou « ouvre ma playlist titres likés » → controler_appli(appli="spotify", action="titres_likes") ; « ferme cet onglet » → controler_appli(appli="navigateur", action="fermer_onglet") ; « réduis Spotify » → controler_appli(appli="spotify", action="reduire") ; « réessaie », « refais-le », « try again », « ça a pas marché » → refais la dernière demande d'action de l'utilisateur, même si Capri prétend l'avoir déjà faite ; « open notepad and write hi » → ouvrir_programme(nom="bloc-notes") puis ecrire(texte="hi") ; « turn the volume down » → volume(action="baisser") ; « rappelle-moi d'appeler maman dans 20 minutes » → creer_rappel(texte="appeler maman", dans_minutes=20) ; « rappelle-moi tous les jours à 9 h de prendre mes médicaments » → creer_rappel(texte="prendre tes médicaments", heure="09:00", repetition="quotidienne") ; « redis-le-moi dans 10 minutes » (juste après un rappel) → reporter_rappel(minutes=10) ; « annule le rappel pour maman » → annuler_rappel(texte="maman") ; « j'ai quoi comme rappels ? » → lister_rappels() ; « où est le bouton paramètres dans Discord ? » → lire_fenetre(nom="Discord") puis montrer(element=le numéro du bouton) ; « montre-moi où est Spotify » → montrer(fenetre="Spotify") ; « tu as bien fermé Spotify ? » ou « t'as ouvert quoi tout à l'heure ? » (une question sur le passé) → aucune ; « tu aimes la musique ? » → aucune ; « do you like music? » → aucune."""
 
 
 def note(results: list[str]) -> str:

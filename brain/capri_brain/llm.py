@@ -432,6 +432,8 @@ class LLM:
                         if r.status_code == 429:
                             wait = _seconds(r.headers.get("retry-after")) or _seconds(r.headers.get("x-ratelimit-reset-tokens"))
                             raise _QuotaFull(f"Limite de {name} atteinte, réessaie dans un moment.", min(wait or 30, 3600))
+                        if r.status_code == 402:  # plus de crédit (OpenRouter…) : pareil, pour une heure
+                            raise _QuotaFull(f"Plus de crédit chez {name}.", 3600)
                         if r.status_code in (401, 403):
                             raise LLMError(f"{name} refuse la clé (invalide ou sans crédit).")
                         raise LLMError(f"{name} : {detail[:300]}")

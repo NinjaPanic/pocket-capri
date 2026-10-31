@@ -65,6 +65,12 @@ const starMoves: { dx: number; dy: number }[] = [];
 const GLYPHS = '01ｱｲｳｴｵｶｷｸｹｺｻｼｽ#$%&*+<>/\\';
 let glyphCols: { x: number; y: number; v: number }[] = [];
 let sleepingSince = 0, cornerDone = false; // longue sieste : elle file dormir dans un coin
+// démarrage et départ : elle s'allume comme un vieil écran, se construit des pieds à la tête ; quand on la quitte,
+// elle fait coucou, se défait en glyphes qui s'envolent et s'éteint en un point
+const BOOT_S = 2.2, BYE_S = 1.6;
+let bootT = 0, byeT = 0, byeWait = 0, gone = false;
+let ritualBox: { top: number; bottom: number; left: number; right: number } | null = null;
+const motes: { x: number; y: number; vy: number; ch: string; life: number }[] = [];
 let copiesT = 0; const COPIES_DUR = 3.4; // ses copies rouge et verte (0 = pas en cours)
 const copyCanvas = document.createElement('canvas'), copyCtx = copyCanvas.getContext('2d')!;
 let pointUntil = 0, pointDir = 1; // elle désigne quelque chose (actions guidées) : tournée de ce côté
@@ -193,7 +199,7 @@ let raf = 0;
 function frameBudget(): number {
   const cap = settings?.character.fpsCap ?? 60;
   if (behavior.state === 'sleeping') return 1000 / Math.min(cap, 15);
-  const busy = dashing !== 0 || roamer.moving || fx.active || speaker.speaking || brain.speaking || dragging || phase !== 'idle' || behavior.state !== 'idle' || pointer;
+  const busy = bootT > 0 || byeT > 0 || dashing !== 0 || roamer.moving || fx.active || speaker.speaking || brain.speaking || dragging || phase !== 'idle' || behavior.state !== 'idle' || pointer;
   return 1000 / (busy ? cap : Math.min(cap, 30));
 }
 function loop(now: number) {
@@ -225,7 +231,7 @@ function facingNow(moveDir: number, p: Params): number {
 function roamWorld(speaking: boolean) {
   return {
     enabled: !!settings?.behavior.idlePeek && !settings.behavior.doNotDisturb && !quiet,
-    busy: speaking || dragging || fx.active || fx.hidden || paused || phase !== 'idle' || !replyDone || !!pointer || workPose !== null,
+    busy: bootT > 0 || byeT > 0 || gone || speaking || dragging || fx.active || fx.hidden || paused || phase !== 'idle' || !replyDone || !!pointer || workPose !== null,
     surface, ledge, me, activeWindow: activeWin, work: workArea, perches: perchSpots, seatRatio: SEAT_RATIO, userIdleSec: idleSec,
     energy: settings?.behavior.energy ?? 1,
   };
@@ -286,7 +292,10 @@ function tick(dt: number) {
   if (model.stutter > 0 && !teleporting) { model.stutter--; return; } // glitch stutter: hold the last image a few frames
   // only explicit one-off bursts glitch her (not moods or thinking, which used to glitch constantly)
   const glitch = !teleporting && settings.character.glitchEffects && model.burst > 0;
-  const g = glitch || teleporting ? offCtx : ctx;
+  if (gone) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
+  if (byeWait > 0 && (byeWait -= dt) <= 0) { ritualBox = null; byeT = 0.001; } // le coucou est fait : elle se défait
+  const ritual = bootT > 0 || byeT > 0;
+  const g = glitch || teleporting || ritual ? offCtx : ctx;
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, canvas.width, canvas.height);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -328,6 +337,7 @@ function tick(dt: number) {
     model.post(ctx, off, Math.max(0.3, model.burst * 0.9));
   }
   if (teleporting) fx.render(ctx, off, dt, dpr);
+  if (ritual) { drawRitual(dt); return; }
   if (starBurst > 0) drawBurst(dt);
   // ses copies : une rouge à gauche, une verte à droite, qui se détachent (avec un léger retard l'une sur l'autre),
   // tremblent un peu, puis reviennent se fondre en elle
@@ -374,6 +384,116 @@ function trackPat(x: number, y: number) {
     behavior.react('happy');
     brain.send({ type: 'touch', kind: 'caresse' }); // ça la touche vraiment (son cœur)
   }
+}
+
+/** Où sont ses pixels (px de l'image hors écran), mesuré une fois au début du démarrage ou du départ. */
+function silhouette() {
+  const w = off.width, h = off.height, data = offCtx.getImageData(0, 0, w, h).data;
+  let top = h, bottom = 0, left = w, right = 0;
+  for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) {
+    if (data[(y * w + x) * 4 + 3] > 40) { top = Math.min(top, y); bottom = Math.max(bottom, y); left = Math.min(left, x); right = Math.max(right, x); }
+  }
+  return bottom > top ? { top, bottom, left, right } : { top: h * 0.1, bottom: h * 0.95, left: w * 0.2, right: w * 0.8 };
+}
+
+/** Son image, découpée en bandes décalées au hasard (amount 0..1), seulement entre y0 et y1. */
+function bands(y0: number, y1: number, amount: number) {
+  const step = Math.max(2, Math.round(6 * dpr));
+  for (let y = Math.max(0, Math.floor(y0)); y < y1; y += step) {
+    const hgt = Math.min(step, y1 - y);
+    const dx = amount > 0 && Math.random() < 0.5 ? (Math.random() - 0.5) * amount * 46 * dpr : 0;
+    ctx.drawImage(off, 0, y, off.width, hgt, dx, y, off.width, hgt);
+  }
+}
+
+/** Une ligne de balayage lumineuse (rose, cœur blanc), centrée sur cx. */
+function scanLine(cx: number, y: number, width: number, alpha: number) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = '#ff3d8b'; ctx.shadowBlur = 14 * dpr;
+  ctx.fillStyle = '#ff3d8b'; ctx.fillRect(cx - width / 2, y - 2 * dpr, width, 4 * dpr);
+  ctx.shadowColor = '#22f27a'; ctx.fillStyle = '#f4fff8'; ctx.fillRect(cx - width / 2 + 4, y - 0.75 * dpr, Math.max(0, width - 8), 1.5 * dpr);
+  ctx.restore();
+}
+
+function spawnMotes(y: number, b: { left: number; right: number }, n: number, vy: number) {
+  for (let i = 0; i < n; i++) {
+    motes.push({ x: b.left + Math.random() * (b.right - b.left), y, vy: vy * (0.5 + Math.random()), ch: GLYPHS[Math.floor(Math.random() * GLYPHS.length)], life: 0.5 + Math.random() * 0.5 });
+  }
+}
+
+function drawMotes(dt: number) {
+  ctx.save();
+  ctx.font = `${Math.round(12 * dpr)}px Consolas, monospace`;
+  for (let i = motes.length - 1; i >= 0; i--) {
+    const m = motes[i];
+    m.y += m.vy * dt * dpr; m.life -= dt;
+    if (m.life <= 0) { motes.splice(i, 1); continue; }
+    ctx.globalAlpha = Math.min(1, m.life * 2);
+    ctx.fillStyle = Math.random() < 0.15 ? '#ff3d8b' : '#22f27a';
+    ctx.fillText(Math.random() < 0.1 ? GLYPHS[Math.floor(Math.random() * GLYPHS.length)] : m.ch, m.x, m.y);
+  }
+  ctx.restore();
+}
+
+/** Démarrage : une ligne qui s'allume, son corps qui se construit des pieds à la tête dans une pluie de glyphes, un
+ *  éclair blanc, puis elle ouvre grand les bras. Départ : elle se défait de la tête aux pieds en glyphes qui
+ *  s'envolent, puis la dernière ligne se replie en un point qui s'éteint. */
+function drawRitual(dt: number) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const b = (ritualBox ??= silhouette());
+  const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2, bw = b.right - b.left, bh = b.bottom - b.top;
+  const smooth = (x: number) => x * x * (3 - 2 * x);
+  if (bootT > 0) {
+    bootT += dt;
+    const t = bootT;
+    if (t < 0.35) {
+      scanLine(cx, cy, bw * 1.3 * (1 - (1 - t / 0.35) ** 3), 1);
+    } else if (t < 1.55) {
+      const u = (t - 0.35) / 1.2, edge = b.bottom - (bh + 8) * smooth(u);
+      bands(edge, off.height, 0.9 * (1 - u));
+      scanLine(cx, edge, bw * 1.3, 1);
+      spawnMotes(edge, b, 2, 40);
+    } else {
+      const u = Math.min(1, (t - 1.55) / (BOOT_S - 1.55));
+      bands(0, off.height, 0.25 * (1 - u));
+      // un éclair blanc sur son corps seulement, qui s'efface
+      ctx.save(); ctx.globalCompositeOperation = 'source-atop'; ctx.globalAlpha = 0.7 * (1 - u) ** 2;
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore();
+    }
+    drawMotes(dt);
+    if (t >= BOOT_S) { bootT = 0; ritualBox = null; motes.length = 0; behavior.playClip('reveal_spread'); }
+    return;
+  }
+  byeT += dt;
+  const t = byeT;
+  if (t < 1.0) {
+    const u = t / 1.0, edge = b.top + (bh + 8) * smooth(u);
+    bands(edge, off.height, 0.2 + 0.8 * u);
+    scanLine(cx, edge, bw * 1.3, 1);
+    spawnMotes(edge, b, 3, -90);
+  } else {
+    // la dernière ligne se replie en un point, qui pulse et s'éteint
+    const u = Math.min(1, (t - 1.0) / (BYE_S - 1.0));
+    const width = bw * 1.3 * Math.max(0, 1 - u * 1.6);
+    if (width > 2) scanLine(cx, b.bottom, width, 1);
+    else {
+      ctx.save(); ctx.globalAlpha = 1 - u; ctx.shadowColor = '#ff3d8b'; ctx.shadowBlur = 18 * dpr; ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(cx, b.bottom, 3 * dpr * (1 + Math.sin(t * 30) * 0.3), 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+  }
+  drawMotes(dt);
+  if (t >= BYE_S) { byeT = 0; gone = true; ritualBox = null; motes.length = 0; void api.invoke('char:farewellDone').catch(() => undefined); }
+}
+
+/** Le départ : un coucou, puis elle se défait (main attend char:farewellDone avant de tout éteindre). */
+function farewell() {
+  if (byeT > 0 || byeWait > 0 || gone) return;
+  speaker.stopAll();
+  bootT = 0; motes.length = 0;
+  behavior.react('wave');
+  byeWait = 0.85;
 }
 
 /** Elle voyage en étoile : un astre à quatre branches qui pulse, avec une traînée de lumière derrière lui. */
@@ -558,6 +678,8 @@ api.on('cue', (raw) => {
     case 'touch': brain.send({ type: 'touch', kind: c.kind }); break;
     case 'landed': behavior.landed(true); break;
     case 'glitchNow': if (settings.character.glitchEffects) model.glitchNow('slice', 0.5); break;
+    case 'boot': gone = false; byeT = 0; ritualBox = null; motes.length = 0; bootT = 0.001; break;
+    case 'farewell': farewell(); break;
     case 'pointAt': pointUntil = performance.now() + 4000; pointDir = c.dir; behavior.playClip('reach_claw', 'action'); break;
     case 'teleport': onTeleport(c.phase, c.id, c.effects); break;
     case 'clip': emote(c.name); break;
@@ -599,6 +721,8 @@ function shareSettings() {
     setFace: (c: Record<string, unknown>) => setFaceConfig(c),
     setWorkPose(p: 'back' | 'crouch' | 'sit' | null) { workPose = p; },
     copies() { copiesT = 0.001; },
+    boot() { gone = false; byeT = 0; ritualBox = null; bootT = 0.001; },
+    bye() { farewell(); },
     star(on: boolean) { starForced = on; starMoves.length = 0; starMoves.push({ dx: 6, dy: -2 }); },
     work(on: boolean) { workPose = on ? 'back' : null; },
     hitAt: (x: number, y: number) => model.hitTest(ctx, x, y, dpr),

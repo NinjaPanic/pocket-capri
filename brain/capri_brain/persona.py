@@ -260,7 +260,8 @@ class QuestionGate:
     les phrases interrogatives qui suivent sa première phrase sont retirées avant d'être affichées ou dites.
     Le texte sort donc phrase par phrase."""
 
-    _END = re.compile(r"[^.!?…]*[.!?…]+[»\"')\]]*\s*")
+    # une fin de phrase est suivie d'un espace : « 192.168.1.4 », « 3.5 Go » ou « v1.2 » ne coupent pas la phrase
+    _END = re.compile(r".*?[.!?…]+[»\"')\]]*\s+", re.S)
 
     def __init__(self, allow_questions: bool, max_sentences: int = 0, already_said: list[str] | None = None):
         self.allow = allow_questions

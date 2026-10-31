@@ -176,7 +176,10 @@ function createCharacter() {
     if (!charWin) return;
     charWin.setBounds(clampToDisplays({ ...target, ...herSize() }, displaysNow()));
     setTimeout(() => { settled = true; }, 500);
-    if (!userHidden) reveal(charWin);
+    if (!userHidden) {
+      if (!TEST) cue({ type: 'boot' }); // elle s'allume
+      reveal(charWin);
+    }
     setTimeout(() => sendSurface(true), 600);
   });
   let moveTimer: NodeJS.Timeout | null = null;
@@ -885,6 +888,7 @@ function registerIpc() {
   handle('char:ceiling', none, hangFromTop);
   handle('char:bubble', z.string().max(2000), (t) => void showBubble(t));
   handle('char:game', z.enum(['hide', 'reflex']), (k) => games.start(k));
+  handle('char:farewellDone', none, () => { farewellDone?.(); });
   // scène rare : pas pendant un jeu en plein écran ni en mode discret (l'effet ne bloque rien, mais il surprendrait)
   handle('char:possess', none, () => {
     if (!charWin || fullscreenHidden || userHidden || settings.get().behavior.doNotDisturb) return;
@@ -928,11 +932,25 @@ function cleanup() {
 function restart() { cleanup(); app.relaunch(); app.exit(0); } // le cerveau et Ollama restent : elle revient tout de suite
 
 app.on('before-quit', (e) => {
-  cleanup();
-  if (shutdownDone || TEST) return;
-  e.preventDefault(); // on éteint tout d'abord, puis on quitte pour de bon
-  void shutdownAll().finally(() => { shutdownDone = true; app.quit(); });
+  if (shutdownDone || TEST) { cleanup(); return; }
+  e.preventDefault(); // elle dit au revoir, on éteint tout, puis on quitte pour de bon
+  if (farewellStarted) return;
+  farewellStarted = true;
+  void farewell().then(() => { cleanup(); return shutdownAll(); }).finally(() => { shutdownDone = true; app.quit(); });
 });
+
+/** Son départ, visible : un « à plus » dans sa bulle, un coucou, puis elle se défait (2,5 s au plus). */
+let farewellStarted = false;
+let farewellDone: (() => void) | null = null;
+async function farewell() {
+  if (!charWin || charWin.isDestroyed() || !charWin.isVisible()) return;
+  games?.stop();
+  void showBubble(lang === 'en' ? 'See you soon…' : 'À plus tard…');
+  cue({ type: 'farewell' });
+  await new Promise<void>((resolve) => { farewellDone = resolve; setTimeout(resolve, 2800); });
+  farewellDone = null;
+  bubbleWin?.hide();
+}
 app.on('window-all-closed', () => { /* reste dans la barre des tâches jusqu'à « Quitter » */ });
 process.on('uncaughtException', (e) => { log?.error('exception non gérée', { error: e }); });
 process.on('unhandledRejection', (e) => { log?.error('promesse rejetée', { error: e as Error }); });
