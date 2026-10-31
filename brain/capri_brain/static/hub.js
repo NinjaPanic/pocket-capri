@@ -479,6 +479,7 @@ async function voiceCard() {
 loaders.etat = async () => {
   const s = await api("/api/state");
   if (s.inner) renderInner(s.inner, s.coeur);
+  if (s.avis) renderOpinions(s.avis);
   renderReminders(await api("/api/rappels"));
   renderTimeline(await api("/api/chronologie"));
   renderDiscoveries(await api("/api/decouvertes"));
@@ -526,6 +527,23 @@ function renderTimeline(items) {
   for (const it of items.slice(0, 80)) {
     const l = el("li");
     l.append(el("span", "meta kind-" + it.kind, KINDS[it.kind] ?? it.kind), el("span", "txt", it.text), el("span", "meta", time(it.ts)));
+    ul.append(l);
+  }
+  card.append(ul);
+  $("innerCards").append(card);
+}
+
+/** Ses avis à elle (et quand elle en a changé), son envie du moment. */
+function renderOpinions(a) {
+  const card = el("div", "card");
+  card.append(el("h2", null, "Ce qu'elle pense"), el("p", "sub", "Ses avis à elle, relevés dans ce qu'elle t'a vraiment dit."));
+  if (a.desire) { const r = el("div", "row"); r.append(el("label", null, "Son envie"), el("span", null, a.desire.text)); card.append(r); }
+  const ul = el("ul", "list");
+  if (!a.opinions.length) ul.append(el("li", "empty", "Pas encore d'avis noté."));
+  for (const o of a.opinions.slice(0, 15)) {
+    const l = el("li");
+    const before = o.history.length ? ` (avant : ${o.history[o.history.length - 1].view})` : "";
+    l.append(el("span", "txt", `${o.subject} — ${o.view}${before}`), el("span", "meta", time(o.said)));
     ul.append(l);
   }
   card.append(ul);

@@ -39,7 +39,7 @@ class RemindersTest(unittest.TestCase):
     def test_daily_repeats_and_skips_missed_days(self):
         reminders.creer("médicaments", heure="09:00", repetition="quotidienne")
         item = reminders.upcoming()[0]
-        item["due"] = time.time() - 3 * 86400  # PC éteint trois jours
+        item["due"] = time.time() - 3 * 86400 - 3600  # PC éteint trois jours
         reminders.fired(item)
         nxt = reminders.upcoming()[0]
         self.assertGreater(nxt["due"], time.time())

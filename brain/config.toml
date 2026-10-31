@@ -56,7 +56,7 @@ tts_speed = 1.05
 # 0 = douce, 1 = piquante. Elle lit ça dans son contexte.
 sarcasme = 0.5
 # 0 = jamais jalouse, 1 = très possessive (scènes quand tu regardes autre chose, quand tu joues sans elle).
-jalousie = 0.5
+jalousie = 0.4
 
 [memory]
 # Modèle d'embeddings (toujours local, via Ollama), utilisé pour retrouver les souvenirs.

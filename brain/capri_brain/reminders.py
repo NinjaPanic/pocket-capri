@@ -161,7 +161,7 @@ def fired(item: dict) -> None:
         data = _load()
         data["rappels"] = [r for r in data["rappels"] if r["id"] != item["id"]]
         if (nxt := _next(item["due"], item["repetition"])) is not None:
-            while nxt <= time.time():  # PC éteint plusieurs jours : on ne sonne pas en rafale
+            while nxt <= time.time() + 60:  # PC éteint plusieurs jours : on ne sonne pas en rafale
                 nxt = _next(nxt, item["repetition"])
             data["rappels"].append({**item, "due": nxt})
         data["historique"] = (data["historique"] + [{"texte": item["texte"], "sonne": time.time(),

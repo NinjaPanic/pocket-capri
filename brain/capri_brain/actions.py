@@ -432,7 +432,7 @@ YES = re.compile(r"^\W*(oui|ouais|ouai|yes|ok|okay|d'accord|dac|vas[- ]y|go|fais
 
 
 # Mots qui laissent penser que l'utilisateur demande une action (filtre rapide avant le vrai choix).
-HINT = re.compile(r"\b(ouvr|lanc|demarr|ferm|quitt|mont|baiss|augment|diminu|coup|volume|son|musique|pause|"
+HINT = re.compile(r"\b(ouvr|lanc|demarr|ferm|quitt|mont|baiss|augment|diminu|coupe|couper|volume|son|musique|pause|"
                   r"repren|suivant|precedent|chanson|morceau|cherch|recherch|google|youtube|site|dossier|"
                   r"eteins|eteindre|redemarr|veille|verrouill|rame|lent|processeur|ram|memoire vive|"
                   r"met|mets|joue|stop|annul|spotify|discord|steam|navigateur|programme|appli|jeu|derang|tranquille|"

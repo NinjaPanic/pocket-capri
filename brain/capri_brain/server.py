@@ -33,6 +33,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import actions, eyes, hands, life, reminders
 from .curiosity import Curiosity
 from .heart import Heart
+from .mind import Mind
 from .inner import InnerLife
 from .llm import LLM, PROVIDERS, LLMError, ToolCall
 from .memory import Memory
@@ -137,6 +138,10 @@ FORGET = re.compile(r"(?:oublie|arr[eê]te (?:de parler )?(?:avec|de|du|des)|lai
 ABOUT_HER = re.compile(r"tu fais quoi|tu faisais|qu'?est-ce que tu fai|ta journ[ée]e|t'as fait quoi|tu as fait quoi|quoi de neuf|"
                        r"tu (lis|lisais|[ée]coutes)|t'es occup", re.I)
 
+# Elle donne un avis dans sa réponse : « j'adore », « je trouve ça… », « franchement c'est nul »…
+OPINION = re.compile(r"\b(j'?adore|j'?aime|je d[ée]teste|j'?ai horreur|je trouve|je pr[ée]f[èe]re|je kiffe|"
+                     r"franchement|c'est (trop |vraiment |super |hyper )?(nul|g[ée]nial|cool|beau|moche|naze|incroyable|"
+                     r"surcot[ée]|sous-cot[ée])|pour moi|à mon avis|i love|i hate|i think)\b", re.I)
 STOP = re.compile(r"^\W*(capri\W*)?(stop|tais[- ]toi|chut|silence|arr[eê]te)\W*$", re.I)
 # Il lui coupe la parole d'un mot : « attends », « non non », « minute »… (pas besoin de dire « Capri »)
 INTERJECT = re.compile(r"\b(attends?|attendez|non|minute|stop|chut|wait|hold on|hang on|no)\b", re.I)
@@ -194,6 +199,7 @@ class Capri:
         self.heart = Heart(DATA / "coeur.json", cfg.setdefault("personnalite", {}))  # ses émotions, votre relation
         reminders.PATH = DATA / "rappels.json"
         self.curiosity = Curiosity(DATA / "decouvertes.json")  # ce qu'elle explore d'elle-même (Wikipédia)
+        self.mind = Mind(DATA / "avis.json")  # ses avis à elle et ses envies
         self.ringing: dict[int, float] = {}  # rappels en train de sonner (id → depuis quand)
         self.shown_feeling = ""
         self.llm = LLM(cfg)
@@ -362,6 +368,7 @@ class Capri:
                 *history,
                 {"role": "system", "content": build_context(self.mood, [m for _, m in memories], last_ts, spoken, self.name)
                  + "\n" + self.inner.mood_context() + "\n" + self.heart.describe()
+                 + self._mind_context(text)
                  + "\nVotre relation, en détail : " + self.heart.relation_text() + self._question_hint(history)
                  + self._forgotten_hint(history, text) + cut},
             ]
@@ -423,6 +430,14 @@ class Capri:
                 reply = await self._respond(messages, reply_id, gate, prelude)
         if reply is not None:
             self.spawn(self.learn(text, reply, memories))
+
+    def _mind_context(self, text: str) -> str:
+        out = ""
+        if views := self.mind.describe(text):
+            out += "\n" + views
+        if (wish := self.mind.current_desire()) and random.random() < 0.3:
+            out += f"\nTon envie du moment (à glisser seulement si ça tombe bien) : {wish['text']}"
+        return out
 
     def _recent_replies(self, n: int = 8) -> list[str]:
         return [m["content"] for m in self.memory.recent_messages(n * 2) if m["role"] == "assistant"][-n:]
@@ -919,8 +934,29 @@ class Capri:
 
     # --- Mémoire --------------------------------------------------------------
 
+    async def learn_opinions(self, user_text: str, reply: str) -> None:
+        """Elle a donné un avis : on le garde (petite étape à part, sinon noyée dans l'extraction des souvenirs)."""
+        try:
+            raw = await self.llm.complete([{"role": "user", "content": (
+                f"Question : {user_text}\nRéponse de Capri : {reply}\n\nQuels AVIS PERSONNELS Capri exprime-t-elle "
+                "elle-même dans sa réponse (ce qu'elle aime, déteste, pense d'un sujet) ? Seulement ce qu'elle dit vraiment. "
+                "\"sujet\" court (2 à 5 mots), \"avis\" en une phrase à la première personne. "
+                "JSON : {\"avis\": [{\"sujet\": \"…\", \"avis\": \"…\"}]} (liste vide si aucun).")}],
+                temperature=0.1, json_mode=True, background=True)
+            for view in json.loads(raw).get("avis") or []:
+                if isinstance(view, dict) and (subject := str(view.get("sujet", "")).strip()):
+                    result = self.mind.opinion(subject, strip_emoji(str(view.get("avis", ""))))
+                    if result == "changé":
+                        self.inner.moment("avis", f"Tu as changé d'avis sur « {subject} »")
+                    if result:
+                        log.info("Avis de Capri (%s) : %s", result, subject)
+        except (LLMError, json.JSONDecodeError, AttributeError) as e:
+            log.info("Avis ignorés : %s", e)
+
     async def learn(self, user_text: str, reply: str, known: list[tuple[int, str]]) -> None:
         """Après chaque échange, extrait en arrière-plan ce qui mérite d'être retenu."""
+        if OPINION.search(reply):
+            self.spawn(self.learn_opinions(user_text, reply))
         if len(user_text) < 12:
             return
         # pas pendant qu'elle parle : la carte graphique sert d'abord à sa voix
@@ -1190,7 +1226,8 @@ class Capri:
                     f"[MOMENT À TOI, il ne voit pas ce message] {about}{hint}\n"
                     f"Ta relation avec lui : {self.inner.bond()}\n"
                     "Écris en JSON TA pensée intime du moment, celle de Capri (une ou deux phrases, à la première personne : « je… », et s'il est question de lui, « il » ; sans emoji) "
-                    "et ton ressenti en quelques mots : {\"pensee\": \"…\", \"ressenti\": \"…\"}")},
+                    "et ton ressenti en quelques mots, et si tu en as une, une envie à toi pour plus tard (faire quelque "
+                    "chose avec lui, écouter, parler de…), sinon vide : {\"pensee\": \"…\", \"ressenti\": \"…\", \"envie\": \"\"}")},
             ], temperature=0.95, json_mode=True, background=True)
             data = json.loads(raw)
             if thought := str(data.get("pensee", "")).strip():
@@ -1198,6 +1235,8 @@ class Capri:
             if feeling := str(data.get("ressenti", "")).strip():
                 self.inner.state["feeling"] = strip_emoji(feeling)[:80]
                 self.inner.save()
+            if wish := strip_emoji(str(data.get("envie", "") or "")).strip():
+                self.mind.desire(wish)
         except (LLMError, json.JSONDecodeError, AttributeError) as e:
             log.info("Pensée du moment ignorée : %s", e)
         log.info("Capri : %s", what)
@@ -1317,6 +1356,9 @@ class Capri:
             choices += ["reading", "reading"]
         if any(p["status"] == "terminé" and not p.get("shared") for p in self.inner.state.get("projects", [])):
             choices += ["project"] * 3
+        if random.random() < 0.25 and (wish := self.mind.untold_desire()):
+            return (f"Tu as une envie à toi en ce moment : {wish['text']}\nDis-la-lui simplement, comme quelqu'un de "
+                    "proche qui propose un truc (il peut dire non). Une ou deux phrases.")
         if random.random() < 0.3 and (found := self.curiosity.unshared()):
             return (f"Par curiosité, tu as lu la page Wikipédia « {found['title']} ». Ce que tu en as retenu : "
                     f"{found['summary']}\nViens lui en parler comme d'une trouvaille qui t'a plu : naturel, deux ou trois "
@@ -1636,7 +1678,7 @@ async def state():
     return {"status": capri.status, "model": capri.llm.label, "voice": capri.voice_status, "mood": capri.mood,
             "memories": len(capri.memory.list_memories()), "actions": len(capri.action_log),
             "avatar": capri.avatar is not None, "quiet": actions.quiet(), "inner": capri.inner.summary(capri.voice_cfg.get("langue", "en")),
-            "coeur": capri.heart.summary()}
+            "coeur": capri.heart.summary(), "avis": capri.mind.summary()}
 
 
 @app.get("/editeur")

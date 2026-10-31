@@ -203,6 +203,27 @@ reste, ce sont les 0,6 s de silence attendues pour savoir que tu as fini, et la 
 * **Assise, elle n'avait pas de bouche** : le dessin assis s'arrêtait avant l'étape qui peint la bouche. C'est
   corrigé, et vérifié sur un rendu avant/après (bouche au repos, bouche ouverte quand elle parle).
 
+### 2.7 Sa façon de penser (d'après tes réponses du 31 octobre)
+
+Tes choix : franche quand elle ne sait pas ; des avis qui tiennent, qu'elle peut changer (et dont elle se souvient
+d'avoir changé) ; des envies ; le droit de douter ; relation complice et taquine (jalousie réglée à 0,4 par défaut) ;
+fréquence de ses venues inchangée par défaut et réglable dans le hub.
+
+* **Ses avis** — `brain/capri_brain/mind.py`, `data/avis.json`. Quand sa réponse contient un avis (« j'adore »,
+  « je trouve », « franchement c'est nul »…), une petite étape en arrière-plan le relève, à partir de ce qu'elle a
+  vraiment dit. Quand tu reparles de ce sujet, son avis lui est rappelé : garde-le, change seulement si on te convainc,
+  et dis-le alors. Un changement d'avis est gardé (« avant, tu pensais… ») et entre dans votre histoire.
+  **Vérifié en vrai** : avis donné sur les jeux de rallye → retenu → à la question suivante, « Je pense toujours ça…
+  mais j'ai un petit truc à rajouter ».
+* **Ses envies** : nées dans ses moments à elle (« le réveiller doucement pour qu'on regarde un truc ensemble »),
+  valables 12 h, glissées parfois dans la conversation, et dites une fois lors de ses venues spontanées.
+* **Douter, être franche** : sa personnalité dit maintenant qu'elle pense par elle-même, qu'elle n'est pas d'accord
+  avec tout, qu'elle peut réfléchir à voix haute de temps en temps, et qu'elle dit franchement quand elle ne sait pas.
+  Vérifié : « Tu te souviens du prénom de mon cousin ? » → « Tu ne me l'as jamais dit… ».
+* **Hub** (onglet État) : « Ce qu'elle pense », ses avis (avec l'ancien quand elle a changé) et son envie du moment.
+* Corrigé au passage : « du **coup** » était pris pour « **coupe** le son » et lançait le module d'actions pour rien
+  (~2,7 s de plus avant sa réponse).
+
 ---
 
 ## 3. Audit de l'existant (vérifié dans le code)
