@@ -1,7 +1,26 @@
 # Faire le squelette de Capri dans Rive
 
-Rive ne fait pas le squelette tout seul (« Auto Weights » ne sert qu'aux maillages déformables). Mais tes 15 pièces
-sont déjà découpées et alignées sur la même toile : il reste à poser les os et à y accrocher les pièces (~20 min).
+**Qui fait quoi** : toi, le découpage, les os et les pièces accrochées, dans Rive, depuis ton PNG ; puis l'export en
+`.riv`. Moi, les animations : Capri fait tourner tes os par le code (repos, marche, assise, vol, gestes, sommeil…),
+comme son corps actuel, et son visage suit l'os `head`. **Tu n'as donc pas besoin de faire d'animations** (étapes 5 et
+6 facultatives) ; seuls les noms des os comptent.
+
+## 0. Découper ton PNG toi-même
+
+Rive ne découpe pas une image. Deux façons :
+
+- **Dans Photopea** (gratuit, dans le navigateur, le plus précis) : ouvre ton PNG ; pour chaque partie, Lasso
+  polygonal autour d'elle (en débordant un peu aux articulations), **Ctrl+J** (la sélection devient un calque), nomme
+  le calque ; recommence sur le calque d'origine. À la fin : Fichier → Exporter les calques → PNG. Chaque calque garde
+  la taille de la toile : tout reste aligné.
+- **Dans Rive directement** : importe ton PNG autant de fois qu'il y a de parties, et pour chacune dessine une forme à
+  la plume autour de la partie, puis utilise-la comme **Clipping** de l'image. Plus long, mais tout reste dans Rive.
+
+Les 15 parties : cheveux, tête, buste, et pour chaque bras haut / avant-bras / main, pour chaque jambe cuisse / bas /
+pied. (Tu peux en faire plus : mèches séparées, éclats verts… donne-leur un os à chacune.)
+
+Rive ne fait pas le squelette tout seul (« Auto Weights » ne sert qu'aux maillages déformables), mais une fois les
+pièces alignées sur la même toile, il reste à poser les os et à y accrocher les pièces (~20 min).
 
 ## 1. Le fichier et la planche (artboard)
 
