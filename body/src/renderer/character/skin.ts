@@ -189,9 +189,11 @@ const FOOT_FLAT = 62;
 const GROUND = SKIN.bones.filter((b) => /foot|shin|thigh|hand/.test(b.name));
 
 export function drawSkinned(ctx: CanvasRenderingContext2D, skin: SkinBody, base0: Mat, flip: number, p: Params, t: number, F: FaceConfig,
-  walking: number) {
+  walking: number, held = false) {
   // en marchant, la « glissade » de l'ancien corps (jambes repliées qui traînent) laisse la place à la vraie marche
   if (walking) p = { ...p, thighL: 0, kneeL: 0, thighR: 0, kneeR: 0, armSpread: 0, hipDrop: 0 };
+  // tenue par la souris : bras levés, jambes qui pendent (l'ancien corps avait un dessin exprès)
+  if (held) p = { ...p, armLRaise: 0.8, armRRaise: 0.8, armSpread: 0.1, thighL: -4, kneeL: 18, thighR: 5, kneeR: 26, hipDrop: 0 };
   // les mêmes poses que son corps d'avant (poseFromParams), sans les corrections propres à l'ancien dessin
   const { pose } = poseFromParams(p, t, {});
   pose.upperArmL = (pose.upperArmL ?? 0) - ARM_L_REST;
@@ -204,6 +206,12 @@ export function drawSkinned(ctx: CanvasRenderingContext2D, skin: SkinBody, base0
   stretch.upperArmL = 1 + reachL * 0.07; stretch.forearmL = 1 + reachL * 0.09;
   stretch.upperArmR = 1 + reachR * 0.07; stretch.forearmR = 1 + reachR * 0.09;
   let bob = 0;
+  if (held) {
+    // elle se balance un peu et ses pieds battent l'air
+    pose.torso = (pose.torso ?? 0) + Math.sin(t * 2.6) * 4;
+    pose.shinL = (pose.shinL ?? 0) + Math.sin(t * 5.1) * 14; pose.shinR = (pose.shinR ?? 0) + Math.sin(t * 5.1 + 2) * 14;
+    pose.footL = (pose.footL ?? 0) - 25; pose.footR = (pose.footR ?? 0) + 25;
+  }
   if (walking) {
     // la marche, vue de face. La jambe qui avance : sa cuisse vient vers nous (très raccourcie), son genou monte et
     // pointe un peu vers l'extérieur, le mollet pend dessous, un peu replié : le pied décolle. L'autre jambe porte,

@@ -11,12 +11,9 @@
  *
  * Son visage est le même dessin vectoriel que sur le bureau (face.ts) : net à toutes les tailles, avec ses réglages.
  */
-import faceData from '../../../assets/desktop-sprites/faces.json';
-import rigData from '../../../assets/desktop-sprites/rig.json';
+import skinData from '../../../assets/skin/skin.json';
 import { drawFace, getFaceConfig, setFaceConfig } from '../character/face';
 import { Mat } from '../character/geometry';
-import { PALETTE as C } from '../character/palette';
-import { flakePattern } from '../character/rig';
 import { NEUTRAL, type Params } from '../character/params';
 
 const q = new URLSearchParams(location.search);
@@ -50,63 +47,49 @@ const pulse = (t: number, a: number, b: number) => (t > a && t < b ? Math.sin(((
 const t0 = performance.now();
 
 // ---------------------------------------------------------------- son visage
-// sa tête et ses cheveux sont exactement ceux de son personnage du bureau (le dessin debout, os « tête » et « cheveux »
-// de son squelette, avec ses paillettes) : une forme d'un seul tenant par couleur, donc aucune fissure, nette à toute taille
+// sa tête et ses cheveux sont ceux de son corps souple (ton dessin découpé : cheveux, tête, mèches de devant) ;
 // la caméra : de loin, toute sa tête et ses cheveux tiennent dans l'écran ; de près, son visage en fait 40 % de la hauteur
+interface SkinPart { file: string; box: [number, number, number, number] }
+const SK = skinData as unknown as { face: { x: number; y: number; dist: number }; parts: SkinPart[] };
+const FACE = SK.face;
+const PIECE = (file: string) => SK.parts.find((q) => q.file === file);
+const IMG: Record<string, HTMLImageElement> = {};
+for (const f of ['cheveux', 'tete', 'meches-devant']) { const im = new Image(); im.src = `skin/${f}.png`; IMG[f] = im; }
 let zoom = 0; // 0 loin .. 1 près, réglé par chaque scène
+/** Pixels d'écran par pixel de son dessin. */
+const SPR = () => {
+  const F = getFaceConfig();
+  const far = (H * 0.92) / (FACE.y - 53 + 140), near = ((H * 0.4) / 36) * (2 * F.eyeSpacing) / (FACE.dist * F.faceScale);
+  return far * Math.pow(near / far, zoom);
+};
 /** Pixels d'écran par unité de son visage. */
-const K = () => { const far = (H * 0.9) / 290, near = (H * 0.4) / 36; return far * Math.pow(near / far, zoom); };
-const CY = () => { const far = H * 0.06 + 205 * ((H * 0.9) / 290), near = H * 0.6; return far + (near - far) * zoom; };
+const K = () => { const F = getFaceConfig(); return (SPR() * FACE.dist * F.faceScale) / (2 * F.eyeSpacing); };
+const CY = () => { const far = H * 0.04 + (FACE.y - 53) * ((H * 0.92) / (FACE.y - 53 + 140)), near = H * 0.6; return far + (near - far) * zoom; };
 function faceBox() { const k = K(); return { x: W / 2 - 30 * k, y: CY() - 16 * k, w: 60 * k, h: 40 * k }; }
 
-type Bone = { name: string; layers: Record<string, number[][]> };
-const BONES = (rigData as unknown as { bones: Bone[] }).bones;
-const ANCHOR = (faceData as unknown as Record<string, { faces: ({ x: number; y: number; angle: number; dist: number } | null)[] }>).idle.faces[0]!;
-/** Ses os « cheveux » (derrière) puis « tête » : une forme par couleur, comme sur le bureau. */
-const PIECES = ['hair', 'head'].map((name) => {
-  const bone = BONES.find((x) => x.name === name)!;
-  return ['violet', 'hair', 'crimson', 'ink', 'green'].flatMap((cls) => {
-    const flats = bone.layers[cls] ?? [];
-    if (!flats.length) return [];
-    const path = new Path2D();
-    for (const f of flats) { path.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) path.lineTo(f[i], f[i + 1]); path.closePath(); }
-    return [{ cls, path }];
-  });
-}).flat();
-
-/** Ses cheveux et sa tête dans faceCv ; renvoie le repère de son visage pour drawFace. */
-function drawHead(p: Params, t: number): { head: Mat; s: number } {
-  const F = getFaceConfig(), k = K(), hs = F.headScale ?? 1;
-  // une unité de son visage = tant de pixels de son dessin (même calcul que sur le bureau)
-  const unit = (ANCHOR.dist * F.faceScale * hs) / (2 * F.eyeSpacing);
-  const spr = k / unit; // pixels d'écran par pixel de son dessin
-  const sway = Math.sin(t * 1.3) * 0.01;
-  const m = new DOMMatrix().translate(W / 2, CY()).rotate(((p.headRoll + sway) * 180) / Math.PI).scale(spr)
-    .rotate(-ANCHOR.angle).scale(hs).translate(-ANCHOR.x, -ANCHOR.y);
+/** Pose ses images (en px du dessin) autour de son visage. */
+function drawPieces(files: string[], roll: number) {
   fc.save();
-  fc.setTransform(new DOMMatrix().scale(dpr).multiply(m));
-  const colour: Record<string, string> = { violet: C.violet, crimson: F.hairColor, ink: C.ink, green: F.maskColor };
-  const pat = flakePattern(fc);
-  // ses paillettes restent aussi fines et serrées à l'écran que sur son petit personnage, même de très près
-  pat?.setTransform(new DOMMatrix().scale(0.25 * 1.6 / (spr * hs)));
-  for (const { cls, path } of PIECES) {
-    if (cls !== 'hair') { fc.fillStyle = colour[cls]; fc.fill(path, 'evenodd'); continue; }
-    fc.fillStyle = F.hairColor; fc.fill(path, 'evenodd');
-    if (pat) { fc.save(); fc.clip(path, 'evenodd'); fc.fillStyle = pat; fc.globalAlpha = 0.85 + 0.15 * Math.sin(t * 1.3); fc.fillRect(-400, -400, 1100, 1200); fc.restore(); }
+  fc.setTransform(new DOMMatrix().scale(dpr).translate(W / 2, CY()).rotate((roll * 180) / Math.PI).scale(SPR()).translate(-FACE.x, -FACE.y));
+  fc.imageSmoothingEnabled = true; fc.imageSmoothingQuality = 'high';
+  for (const f of files) {
+    const part = PIECE(f), im = IMG[f];
+    if (part && im.complete && im.naturalWidth) fc.drawImage(im, part.box[0], part.box[1]);
   }
   fc.restore();
-  const head = new Mat().translate(W / 2, CY()).rotate(p.headRoll + sway).translate(F.faceX * k, F.faceY * k)
-    .rotate((F.faceAngle * Math.PI) / 180).scale(k).translate(0, -F.eyeY);
-  return { head, s: k };
 }
 
-/** Son visage dans faceCv, avec l'expression du moment. */
+/** Son visage dans faceCv, avec l'expression du moment : cheveux, tête, son visage vivant, puis les mèches de devant. */
 function renderFace(p: Params, t: number) {
   fc.setTransform(1, 0, 0, 1, 0, 0);
   fc.clearRect(0, 0, faceCv.width, faceCv.height);
   fc.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const { head, s: k } = drawHead(p, t);
+  const F = getFaceConfig(), k = K(), roll = p.headRoll + Math.sin(t * 1.3) * 0.01;
+  drawPieces(['cheveux', 'tete'], roll);
+  const head = new Mat().translate(W / 2, CY()).rotate(roll).translate(F.faceX * k, F.faceY * k)
+    .rotate((F.faceAngle * Math.PI) / 180).scale(k).translate(0, -F.eyeY);
   drawFace(fc, head, p, k, undefined, false);
+  drawPieces(['meches-devant'], roll);
 }
 
 function tinted(color: string) {

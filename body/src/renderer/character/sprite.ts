@@ -245,7 +245,7 @@ export class SpriteBody {
     // everyday life (standing, talking, gestures) on the articulated body; the special drawn sheets
     // (sleep, dangle, glitch, walk, dance…) keep their hand-drawn frames
     if (F.skin >= 0.5 && this.skin.ready) {
-      drawSkinned(ctx, this.skin, base, flip, p, this.t, F, inp.dashing);
+      drawSkinned(ctx, this.skin, base, flip, p, this.t, F, inp.dashing, inp.dragging);
       return true;
     }
     if (F.skeleton >= 0.5 && this.sheet === 'idle') {
